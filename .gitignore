@@ -5,3 +5,5 @@ coverage.out
 test-results.json
 cov.out
 *.cov
+CLAUDE.md
+myrules.txt
