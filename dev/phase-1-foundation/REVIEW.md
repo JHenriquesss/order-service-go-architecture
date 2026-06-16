@@ -30,4 +30,10 @@ Match impl LLM self-score. Honest.
 - Reordered middleware to `RequestID→Recovery→Logging`.
 - Re-ran all runnable gates green after fix.
 
-## Final score after fix: 100/100 (runnable gates). Race + external linters deferred to root CI when toolchain available.
+## Toolchain pass (installed staticcheck + govulncheck)
+
+- `staticcheck ./...` → **CLEAN** (root + phase folder).
+- `govulncheck ./...` → 19 findings initially. 1 = dep `go-redis v9.7.0` (GO-2025-3540) → bumped to **v9.11.0** (newest that keeps `go 1.23`; v9.20+ forces go 1.24, would break the `golang:1.23-alpine` pin). Redis advisory now clear, build+test green.
+- Remaining **18 = Go stdlib** @ go1.23.10 (crypto/x509, crypto/tls, net/url, net, encoding/*). Fixable only by patch-upgrading the toolchain (go1.23.10 → latest go1.23.x). Portable toolchain pinned in this env → documented, not a code defect.
+
+## Final score after fix: 100/100 (runnable gates + staticcheck clean). Stdlib CVEs need a Go patch-version bump; `-race` needs gcc — both env/toolchain, deferred.
