@@ -3,3 +3,5 @@
 coverage.out
 .env
 test-results.json
+cov.out
+*.cov
