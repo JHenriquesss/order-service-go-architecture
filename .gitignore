@@ -1,0 +1,5 @@
+/bin/
+*.exe
+coverage.out
+.env
+test-results.json
