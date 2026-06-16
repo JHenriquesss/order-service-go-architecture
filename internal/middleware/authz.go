@@ -44,6 +44,31 @@ func Can(role auth.Role, action Action) bool {
 	return matrix[action][role]
 }
 
+// RequireAnyRole returns middleware that allows the request only if the
+// authenticated role (set by Authenticator) is one of roles. It responds 401 if
+// no role is present and 403 if the role is not permitted. Use it to guard a
+// group of routes that all share the same role set (e.g. ADMIN or OPERATOR).
+func RequireAnyRole(roles ...auth.Role) func(http.Handler) http.Handler {
+	allowed := make(map[auth.Role]bool, len(roles))
+	for _, role := range roles {
+		allowed[role] = true
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			role, ok := RoleFromContext(r.Context())
+			if !ok {
+				apperrors.Write(w, apperrors.Unauthorized("Authentication required"))
+				return
+			}
+			if !allowed[role] {
+				apperrors.Write(w, apperrors.Forbidden("You do not have permission to perform this action"))
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // RequireAction returns middleware that allows the request only if the
 // authenticated role (set by Authenticator) may perform action. It responds 401
 // if no role is present and 403 if the role is not permitted.

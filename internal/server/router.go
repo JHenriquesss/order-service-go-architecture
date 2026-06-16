@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"order-service-go/internal/auth"
+	"order-service-go/internal/customer"
 	"order-service-go/internal/middleware"
 )
 
@@ -16,7 +17,7 @@ import (
 // wrap all routes. Auth endpoints are public; /api/users is an ADMIN-only route
 // demonstrating the auth + role middleware against the authorization matrix
 // (architecture §15).
-func New(log *slog.Logger, authHandler *auth.Handler, verifier middleware.TokenVerifier) http.Handler {
+func New(log *slog.Logger, authHandler *auth.Handler, customerHandler *customer.Handler, verifier middleware.TokenVerifier) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -28,8 +29,13 @@ func New(log *slog.Logger, authHandler *auth.Handler, verifier middleware.TokenV
 
 	r.Group(func(protected chi.Router) {
 		protected.Use(middleware.Authenticator(verifier))
+
 		protected.With(middleware.RequireAction(middleware.ActionListUsers)).
 			Get("/api/users", listUsers)
+
+		// Customers: ADMIN or OPERATOR per architecture §15.
+		protected.With(middleware.RequireAnyRole(auth.RoleAdmin, auth.RoleOperator)).
+			Mount("/api/customers", customerHandler.Routes())
 	})
 
 	return r

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"order-service-go/internal/auth"
+	"order-service-go/internal/customer"
 )
 
 func discardLogger() *slog.Logger {
@@ -27,7 +28,8 @@ func newTestServer(t *testing.T) (*httptest.Server, *auth.TokenManager) {
 		t.Fatalf("NewTokenManager: %v", err)
 	}
 	svc := auth.NewService(auth.NewInMemoryUserRepository(), tm)
-	srv := httptest.NewServer(New(discardLogger(), auth.NewHandler(svc), tm))
+	customerHandler := customer.NewHandler(customer.NewService(customer.NewInMemoryRepository()))
+	srv := httptest.NewServer(New(discardLogger(), auth.NewHandler(svc), customerHandler, tm))
 	t.Cleanup(srv.Close)
 	return srv, tm
 }
@@ -133,6 +135,30 @@ func TestProtectedRouteEnforcesAuthAndRole(t *testing.T) {
 	}
 	if code := protectedGet(t, srv.URL+"/api/users", adminTok); code != http.StatusOK {
 		t.Fatalf("ADMIN on ADMIN-only: status = %d, want 200", code)
+	}
+}
+
+func TestCustomerRoutesEnforceAuthAndCreate(t *testing.T) {
+	srv, tm := newTestServer(t)
+	adminTok, _, _ := tm.Issue("admin-id", auth.RoleAdmin)
+
+	// Unauthenticated create is rejected.
+	if code := protectedGet(t, srv.URL+"/api/customers", ""); code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated list: status = %d, want 401", code)
+	}
+
+	// Authenticated create with a valid ADMIN token succeeds.
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/customers",
+		strings.NewReader(`{"name":"ACME","document":"123","email":"a@acme.com"}`))
+	req.Header.Set("Authorization", "Bearer "+adminTok)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d, want 201", resp.StatusCode)
 	}
 }
 
