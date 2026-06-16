@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: order-service-postgres
+    environment:
+      POSTGRES_DB: orders
+      POSTGRES_USER: orders
+      POSTGRES_PASSWORD: orders
+    ports:
+      - "5432:5432"
+    volumes:
+      - order_service_postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    container_name: order-service-redis
+    ports:
+      - "6379:6379"
+
+  api:
+    build: .
+    container_name: order-service-api
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      APP_ENV: development
+      HTTP_PORT: 8080
+      DATABASE_URL: postgres://orders:orders@postgres:5432/orders?sslmode=disable
+      REDIS_ADDR: redis:6379
+      JWT_SECRET: change-me
+      JWT_EXPIRATION_MINUTES: 120
+      LOG_LEVEL: info
+    ports:
+      - "8080:8080"
+    command: ["/app/api"]
+
+  worker:
+    build: .
+    container_name: order-service-worker
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgres://orders:orders@postgres:5432/orders?sslmode=disable
+      REDIS_ADDR: redis:6379
+      JWT_SECRET: change-me
+      ORDER_WORKER_COUNT: 3
+      LOG_LEVEL: info
+    command: ["/app/worker"]
+
+volumes:
+  order_service_postgres_data:
