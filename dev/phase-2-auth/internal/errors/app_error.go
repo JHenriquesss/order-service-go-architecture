@@ -1,5 +1,6 @@
 // Package errors defines the application's error model: a typed AppError with
-// the canonical error codes (architecture §24) and helper constructors.
+// the canonical error codes (architecture §24) and helper constructors. Only
+// the codes relevant to authentication and authorization are defined here.
 package errors
 
 import "net/http"
@@ -8,15 +9,11 @@ import "net/http"
 type Code string
 
 const (
-	CodeValidation         Code = "VALIDATION_ERROR"
-	CodeUnauthorized       Code = "UNAUTHORIZED"
-	CodeForbidden          Code = "FORBIDDEN"
-	CodeNotFound           Code = "RESOURCE_NOT_FOUND"
-	CodeDuplicate          Code = "DUPLICATE_RESOURCE"
-	CodeInvalidOrderStatus Code = "INVALID_ORDER_STATUS"
-	CodeInactiveCustomer   Code = "INACTIVE_CUSTOMER"
-	CodeInactiveProduct    Code = "INACTIVE_PRODUCT"
-	CodeInternal           Code = "INTERNAL_ERROR"
+	CodeValidation   Code = "VALIDATION_ERROR"
+	CodeUnauthorized Code = "UNAUTHORIZED"
+	CodeForbidden    Code = "FORBIDDEN"
+	CodeDuplicate    Code = "DUPLICATE_RESOURCE"
+	CodeInternal     Code = "INTERNAL_ERROR"
 )
 
 // AppError is a domain-aware error carrying an API code, a client-safe
@@ -48,8 +45,8 @@ func Validation(message string) *AppError {
 	return New(CodeValidation, message, http.StatusBadRequest, nil)
 }
 
-// Unauthorized reports failed authentication (401). Callers keep the message
-// generic so it never reveals which credential was wrong.
+// Unauthorized reports failed authentication (401). The message is kept generic
+// by callers so it never reveals which credential was wrong.
 func Unauthorized(message string) *AppError {
 	return New(CodeUnauthorized, message, http.StatusUnauthorized, nil)
 }
@@ -59,19 +56,9 @@ func Forbidden(message string) *AppError {
 	return New(CodeForbidden, message, http.StatusForbidden, nil)
 }
 
-// NotFound reports a missing resource (404).
-func NotFound(message string) *AppError {
-	return New(CodeNotFound, message, http.StatusNotFound, nil)
-}
-
 // Duplicate reports a uniqueness conflict (409).
 func Duplicate(message string) *AppError {
 	return New(CodeDuplicate, message, http.StatusConflict, nil)
-}
-
-// InvalidOrderStatus reports an illegal order status transition (400).
-func InvalidOrderStatus(message string) *AppError {
-	return New(CodeInvalidOrderStatus, message, http.StatusBadRequest, nil)
 }
 
 // Internal reports an unexpected server error (500). The cause is wrapped for

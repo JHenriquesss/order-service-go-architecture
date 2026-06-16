@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,12 +13,8 @@ import (
 	"order-service-go/internal/auth"
 )
 
-func discardLogger() *slog.Logger {
-	return slog.New(slog.NewJSONHandler(io.Discard, nil))
-}
-
-// newTestServer wires the full stack with an in-memory repository, the way main
-// would, and returns the httptest server plus the token manager.
+// newTestServer wires the full auth stack with an in-memory repository, the way
+// main would, and returns the httptest server plus the token manager.
 func newTestServer(t *testing.T) (*httptest.Server, *auth.TokenManager) {
 	t.Helper()
 	tm, err := auth.NewTokenManager("integration-secret", 120*time.Minute)
@@ -27,7 +22,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *auth.TokenManager) {
 		t.Fatalf("NewTokenManager: %v", err)
 	}
 	svc := auth.NewService(auth.NewInMemoryUserRepository(), tm)
-	srv := httptest.NewServer(New(discardLogger(), auth.NewHandler(svc), tm))
+	srv := httptest.NewServer(New(auth.NewHandler(svc), tm))
 	t.Cleanup(srv.Close)
 	return srv, tm
 }
@@ -39,25 +34,6 @@ func post(t *testing.T, url, body string) *http.Response {
 		t.Fatalf("POST %s: %v", url, err)
 	}
 	return resp
-}
-
-func TestHealthReturns200(t *testing.T) {
-	srv, _ := newTestServer(t)
-	resp, err := http.Get(srv.URL + "/health")
-	if err != nil {
-		t.Fatalf("GET /health: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
-	var body map[string]string
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatalf("health body not JSON: %v", err)
-	}
-	if body["status"] != "ok" {
-		t.Errorf("status field = %q, want ok", body["status"])
-	}
 }
 
 func TestRegisterThenLoginFlow(t *testing.T) {

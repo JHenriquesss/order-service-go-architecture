@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"order-service-go/internal/auth"
 	"order-service-go/internal/config"
 	"order-service-go/internal/database"
 	"order-service-go/internal/logger"
@@ -40,7 +41,14 @@ func run() error {
 	}
 	defer pool.Close()
 
-	handler := server.New(log)
+	tokens, err := auth.NewTokenManager(cfg.JWTSecret, time.Duration(cfg.JWTExpirationMinutes)*time.Minute)
+	if err != nil {
+		return err
+	}
+	authService := auth.NewService(auth.NewInMemoryUserRepository(), tokens)
+	authHandler := auth.NewHandler(authService)
+
+	handler := server.New(log, authHandler, tokens)
 	addr := ":" + cfg.HTTPPort
 	log.Info("starting api server", "addr", addr, "app_env", cfg.AppEnv)
 
