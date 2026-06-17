@@ -91,6 +91,8 @@ Default admin after seed or first API start: `admin@example.com` / `123456`.
 | `JWT_SECRET` | HMAC signing secret | `change-me` |
 | `JWT_EXPIRATION_MINUTES` | Token lifetime | `120` |
 | `ORDER_WORKER_COUNT` | Worker goroutines | `3` |
+| `ORDER_MAX_RETRIES` | Max re-tries after the first processing attempt (default 3 → 4 total tries) | `3` |
+| `ORDER_TRANSIENT_FAILURE_TOTAL` | Worker-only: order total that triggers simulated infra failure (integration / dead-letter verification) | `42.42` |
 | `LOG_LEVEL` | Log level | `info` |
 
 ## Database Migrations
@@ -139,6 +141,24 @@ Swagger UI is mounted at `GET /swagger/index.html` when the root application int
 2. API commits the order and items to PostgreSQL, then LPUSHes an `ORDER_CREATED` message to Redis.
 3. Worker dequeues the message, transitions the order to `PROCESSING`, simulates payment, then sets `PAID` or `FAILED`.
 4. Metrics counters update on create, process, and failure.
+
+## Resilience
+
+When `Service.Process` returns a **transient** error (database load/update failure), the worker re-publishes the message to `orders:processing` with an incremented `retry_count`. After **`ORDER_MAX_RETRIES` re-tries** (default **3**), the message is moved to the dead-letter queue **`orders:dead-letter`** and logged with `order_id` and final `retry_count`.
+
+**Retry semantics:** default `ORDER_MAX_RETRIES=3` means **1 initial attempt + up to 3 re-tries** (4 processing attempts total). A message dead-lettered after exhausting retries carries `retry_count: 3`. Set `ORDER_MAX_RETRIES=0` to dead-letter on the first transient failure with no re-tries.
+
+**Payment declines are not retried.** When payment fails, `Service.Process` marks the order `FAILED` and returns `nil` (terminal business outcome). Those messages are never requeued and never dead-lettered.
+
+Inspect dead-lettered messages:
+
+```bash
+redis-cli LRANGE orders:dead-letter 0 -1
+```
+
+**Integration verification:** with `make compose-up`, the worker is configured with `ORDER_TRANSIENT_FAILURE_TOTAL=42.42`. Create an order whose total is **42.42** to trigger simulated infrastructure failures; after retries exhaust, the message appears in `orders:dead-letter`. Orders with total **13.37** still fail payment once (`FAILED`) and do not enter the dead-letter queue.
+
+Re-publishing uses immediate re-enqueue (no backoff). Worker shutdown mid-retry follows existing at-most-once queue semantics: an in-flight message may be lost if the process exits before requeue/dead-letter completes.
 
 ## Metrics
 
@@ -195,7 +215,7 @@ make compose-up
 make test-integration
 ```
 
-The suite covers: Postgres customer round-trip, Redis queue publish/consume, E2E happy path (login → customer → product → order → worker → **PAID** + `orders_created_total` on API and `orders_processed_total` on worker), failure path → **FAILED** + `orders_failed_total` on worker, worker `/health` + `/metrics`, unauthenticated **401**, and unreachable Postgres (bad DSN fails loudly).
+The suite covers: Postgres customer round-trip, Redis queue publish/consume, E2E happy path (login → customer → product → order → worker → **PAID** + `orders_created_total` on API and `orders_processed_total` on worker), failure path → **FAILED** + `orders_failed_total` on worker, **transient failure → `orders:dead-letter`** (product total 42.42), **payment decline absent from dead-letter**, worker `/health` + `/metrics`, unauthenticated **401**, and unreachable Postgres (bad DSN fails loudly).
 
 When the `integration` tag is set, missing or unreachable services cause tests to **fail** (not skip).
 

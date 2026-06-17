@@ -43,9 +43,13 @@ func TestWorkerLogsServiceProcessError(t *testing.T) {
 	collector := metrics.NewCollector()
 	svc := order.NewService(repo, nil, nil, &order.FakeProducer{}, nil, collector, slog.Default())
 	queue := order.NewFakeQueue()
+	retryQ := order.NewFakeRetryQueue(queue)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { New(queue, svc, &order.FakePaymentProcessor{}, 1, slog.Default()).Run(ctx); close(done) }()
+	go func() {
+		New(queue, retryQ, svc, &order.FakePaymentProcessor{}, 3, 1, slog.Default()).Run(ctx)
+		close(done)
+	}()
 
 	queue.Enqueue(order.OrderCreatedMessage{OrderID: orderID, Event: order.OrderCreatedEvent})
 	waitProcessed(t, repo.InMemoryRepository, orderID, order.StatusProcessing)

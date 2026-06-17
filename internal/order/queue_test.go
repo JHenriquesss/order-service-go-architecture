@@ -2,6 +2,7 @@ package order
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -49,5 +50,16 @@ func TestFakeProducerLastMessage(t *testing.T) {
 	last, ok := p.LastMessage()
 	if !ok || last.OrderID != msg.OrderID {
 		t.Fatal("expected last message")
+	}
+}
+
+func TestOrderCreatedMessageMissingRetryCountDecodesToZero(t *testing.T) {
+	raw := `{"order_id":"550e8400-e29b-41d4-a716-446655440000","event":"ORDER_CREATED","created_at":"2026-06-01T12:00:00Z"}`
+	var msg OrderCreatedMessage
+	if err := json.Unmarshal([]byte(raw), &msg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if msg.RetryCount != 0 {
+		t.Fatalf("retry_count=%d, want 0", msg.RetryCount)
 	}
 }

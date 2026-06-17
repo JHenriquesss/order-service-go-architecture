@@ -14,9 +14,10 @@ const OrderCreatedEvent = "ORDER_CREATED"
 
 // OrderCreatedMessage is the Redis queue payload (architecture Â§9).
 type OrderCreatedMessage struct {
-	OrderID   uuid.UUID `json:"order_id"`
-	Event     string    `json:"event"`
-	CreatedAt time.Time `json:"created_at"`
+	OrderID    uuid.UUID `json:"order_id"`
+	Event      string    `json:"event"`
+	CreatedAt  time.Time `json:"created_at"`
+	RetryCount int       `json:"retry_count"`
 }
 
 // OrderProducer publishes order-created messages after DB commit (BR-ORD-006).
@@ -27,6 +28,12 @@ type OrderProducer interface {
 // OrderQueue consumes order-created messages for the worker pool.
 type OrderQueue interface {
 	Dequeue(ctx context.Context) (OrderCreatedMessage, error)
+}
+
+// RetryQueue re-publishes failed messages or moves them to the dead-letter queue.
+type RetryQueue interface {
+	Requeue(ctx context.Context, msg OrderCreatedMessage) error
+	DeadLetter(ctx context.Context, msg OrderCreatedMessage) error
 }
 
 // ErrQueueClosed indicates the queue will not deliver more messages.
@@ -119,4 +126,55 @@ func (q *FakeQueue) Dequeue(ctx context.Context) (OrderCreatedMessage, error) {
 		case <-q.notify:
 		}
 	}
+}
+
+// FakeRetryQueue records requeue and dead-letter calls for unit tests. When
+// ProcessingQueue is set, Requeue delivers the message back to that queue.
+type FakeRetryQueue struct {
+	mu              sync.Mutex
+	Requeued        []OrderCreatedMessage
+	DeadLettered    []OrderCreatedMessage
+	ProcessingQueue *FakeQueue
+	FailRequeue     bool
+	FailDeadLetter  bool
+}
+
+// NewFakeRetryQueue builds a fake retry queue optionally linked to a processing queue.
+func NewFakeRetryQueue(processing *FakeQueue) *FakeRetryQueue {
+	return &FakeRetryQueue{ProcessingQueue: processing}
+}
+
+func (f *FakeRetryQueue) Requeue(_ context.Context, msg OrderCreatedMessage) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.FailRequeue {
+		return errors.New("requeue failed")
+	}
+	f.Requeued = append(f.Requeued, msg)
+	if f.ProcessingQueue != nil {
+		f.ProcessingQueue.Enqueue(msg)
+	}
+	return nil
+}
+
+func (f *FakeRetryQueue) DeadLetter(_ context.Context, msg OrderCreatedMessage) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.FailDeadLetter {
+		return errors.New("dead-letter failed")
+	}
+	f.DeadLettered = append(f.DeadLettered, msg)
+	return nil
+}
+
+func (f *FakeRetryQueue) RequeueCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.Requeued)
+}
+
+func (f *FakeRetryQueue) DeadLetterCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.DeadLettered)
 }

@@ -78,6 +78,8 @@ services:
       REDIS_ADDR: redis:6379
       JWT_SECRET: change-me
       ORDER_WORKER_COUNT: 3
+      ORDER_MAX_RETRIES: 3
+      ORDER_TRANSIENT_FAILURE_TOTAL: "42.42"
       METRICS_PORT: 9090
       LOG_LEVEL: info
     ports:

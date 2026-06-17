@@ -21,6 +21,7 @@ Each implementation LLM receives exactly one prompt (also in `IMPLEMENTATION-PRO
 | 7 | `phase-7-docs-integration` | swagger/OpenAPI, README, end-to-end integration tests | 1–6 |
 | 8 | `phase-8-live-verify` | live PG+Redis run, Makefile/compose DX, execute integration suite, fix surfaced defects | 1–7 (root repo) |
 | 9 | `phase-9-prometheus-metrics` | swap in-memory metrics for Prometheus client; worker exposes own `/metrics`; compose Prometheus scrape | 1–8 (root repo) |
+| 10 | `phase-10-resilience` | retry count in payload, bounded retry (≤3), `orders:dead-letter` queue; optional transactional outbox | 1–9 (root repo) |
 
 "Standalone" means: each folder compiles and tests **alone** using its own `go.mod` and in-folder fakes/stubs (in-memory repos, fake clock, fake queue). Live PostgreSQL/Redis tests are gated behind the `integration` build tag so the default `go test ./...` runs with no external services. The "depends on" column describes only how slices merge at integration time — it is **not** visible to the implementation LLM.
 

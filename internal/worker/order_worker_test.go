@@ -18,7 +18,7 @@ import (
 	"order-service-go/internal/order"
 )
 
-func setupWorkerTest(t *testing.T, workers int) (*order.InMemoryRepository, *order.FakeQueue, *metrics.Collector, *order.Service, uuid.UUID) {
+func setupWorkerTest(t *testing.T, workers int) (*order.InMemoryRepository, *order.FakeQueue, *order.FakeRetryQueue, *metrics.Collector, *order.Service, uuid.UUID) {
 	t.Helper()
 	customerID := uuid.New()
 	productID := uuid.New()
@@ -42,8 +42,13 @@ func setupWorkerTest(t *testing.T, workers int) (*order.InMemoryRepository, *ord
 	collector := metrics.NewCollector()
 	svc := order.NewService(repo, nil, nil, &order.FakeProducer{}, nil, collector, slog.Default())
 	queue := order.NewFakeQueue()
+	retryQ := order.NewFakeRetryQueue(queue)
 	_ = workers
-	return repo, queue, collector, svc, orderID
+	return repo, queue, retryQ, collector, svc, orderID
+}
+
+func newTestWorker(queue order.OrderQueue, retryQ order.RetryQueue, svc *order.Service, proc order.PaymentProcessor, maxRetries, workers int) *OrderWorker {
+	return New(queue, retryQ, svc, proc, maxRetries, workers, nil)
 }
 
 func metricCounterValue(t *testing.T, c *metrics.Collector, name string) float64 {
@@ -67,9 +72,9 @@ func metricCounterValue(t *testing.T, c *metrics.Collector, name string) float64
 }
 
 func TestWorkerProcessesCreatedOrderToPaid(t *testing.T) {
-	repo, queue, collector, svc, orderID := setupWorkerTest(t, 1)
+	repo, queue, retryQ, collector, svc, orderID := setupWorkerTest(t, 1)
 	proc := &order.FakePaymentProcessor{}
-	w := New(queue, svc, proc, 1, nil)
+	w := newTestWorker(queue, retryQ, svc, proc, 3, 1)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -92,13 +97,13 @@ func TestWorkerProcessesCreatedOrderToPaid(t *testing.T) {
 }
 
 func TestWorkerProcessingErrorIncrementsFailedMetric(t *testing.T) {
-	repo, queue, collector, svc, orderID := setupWorkerTest(t, 1)
+	repo, queue, retryQ, collector, svc, orderID := setupWorkerTest(t, 1)
 	proc := &order.FakePaymentProcessor{}
 	proc.SetFailure(orderID, context.Canceled)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { w := New(queue, svc, proc, 1, nil); w.Run(ctx); close(done) }()
+	go func() { w := newTestWorker(queue, retryQ, svc, proc, 3, 1); w.Run(ctx); close(done) }()
 
 	queue.Enqueue(order.OrderCreatedMessage{OrderID: orderID, Event: order.OrderCreatedEvent})
 	waitProcessed(t, repo, orderID, order.StatusFailed)
@@ -111,12 +116,12 @@ func TestWorkerProcessingErrorIncrementsFailedMetric(t *testing.T) {
 }
 
 func TestWorkerIgnoresNonCreatedOrder(t *testing.T) {
-	repo, queue, collector, svc, orderID := setupWorkerTest(t, 1)
+	repo, queue, retryQ, collector, svc, orderID := setupWorkerTest(t, 1)
 	_ = repo.UpdateStatus(context.Background(), orderID, order.StatusPaid)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { New(queue, svc, &order.FakePaymentProcessor{}, 1, nil).Run(ctx); close(done) }()
+	go func() { newTestWorker(queue, retryQ, svc, &order.FakePaymentProcessor{}, 3, 1).Run(ctx); close(done) }()
 
 	queue.Enqueue(order.OrderCreatedMessage{OrderID: orderID, Event: order.OrderCreatedEvent})
 	time.Sleep(200 * time.Millisecond)
@@ -129,10 +134,10 @@ func TestWorkerIgnoresNonCreatedOrder(t *testing.T) {
 }
 
 func TestWorkerHandlesUnknownOrderIDWithoutCrash(t *testing.T) {
-	_, queue, collector, svc, _ := setupWorkerTest(t, 1)
+	_, queue, retryQ, collector, svc, _ := setupWorkerTest(t, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { New(queue, svc, &order.FakePaymentProcessor{}, 1, nil).Run(ctx); close(done) }()
+	go func() { newTestWorker(queue, retryQ, svc, &order.FakePaymentProcessor{}, 3, 1).Run(ctx); close(done) }()
 
 	queue.Enqueue(order.OrderCreatedMessage{OrderID: uuid.New(), Event: order.OrderCreatedEvent})
 	queue.Enqueue(order.OrderCreatedMessage{OrderID: uuid.Nil, Event: order.OrderCreatedEvent})
@@ -145,7 +150,7 @@ func TestWorkerHandlesUnknownOrderIDWithoutCrash(t *testing.T) {
 }
 
 func TestWorkerShutdownDrainsInFlightWork(t *testing.T) {
-	repo, queue, collector, svc, orderID := setupWorkerTest(t, 1)
+	repo, queue, retryQ, collector, svc, orderID := setupWorkerTest(t, 1)
 	started := make(chan struct{}, 1)
 	proceed := make(chan struct{})
 	proc := &order.FakePaymentProcessor{
@@ -155,7 +160,7 @@ func TestWorkerShutdownDrainsInFlightWork(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { New(queue, svc, proc, 1, nil).Run(ctx); close(done) }()
+	go func() { newTestWorker(queue, retryQ, svc, proc, 3, 1).Run(ctx); close(done) }()
 
 	queue.Enqueue(order.OrderCreatedMessage{OrderID: orderID, Event: order.OrderCreatedEvent})
 	<-started
@@ -170,10 +175,10 @@ func TestWorkerShutdownDrainsInFlightWork(t *testing.T) {
 }
 
 func TestWorkerPoolStartsMultipleWorkers(t *testing.T) {
-	repo, queue, _, svc, orderID := setupWorkerTest(t, 2)
+	repo, queue, retryQ, _, svc, orderID := setupWorkerTest(t, 2)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { New(queue, svc, &order.FakePaymentProcessor{}, 2, nil).Run(ctx); close(done) }()
+	go func() { newTestWorker(queue, retryQ, svc, &order.FakePaymentProcessor{}, 3, 2).Run(ctx); close(done) }()
 
 	queue.Enqueue(order.OrderCreatedMessage{OrderID: orderID, Event: order.OrderCreatedEvent})
 	waitProcessed(t, repo, orderID, order.StatusPaid)

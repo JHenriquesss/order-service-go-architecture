@@ -50,9 +50,18 @@ func run() error {
 	defer func() { _ = redisClient.Close() }()
 
 	metricsCollector := metrics.NewCollector()
-	svc := order.NewService(order.NewPostgresRepository(pool), nil, nil, nil, nil, metricsCollector, log)
+	var repo order.OrderRepository = order.NewPostgresRepository(pool)
+	if cfg.TransientFailureTotal != "" {
+		sentinel, err := money.ParseString(cfg.TransientFailureTotal)
+		if err != nil {
+			return fmt.Errorf("ORDER_TRANSIENT_FAILURE_TOTAL: %w", err)
+		}
+		repo = newTransientFailureRepo(repo, sentinel)
+	}
+	svc := order.NewService(repo, nil, nil, nil, nil, metricsCollector, log)
 	consumer := queue.NewOrderConsumer(redisClient)
-	workerPool := worker.New(consumer, svc, simulatedProcessor{}, cfg.OrderWorkerCount, log)
+	retryQueue := queue.NewOrderRetryQueue(redisClient)
+	workerPool := worker.New(consumer, retryQueue, svc, simulatedProcessor{}, cfg.OrderMaxRetries, cfg.OrderWorkerCount, log)
 
 	metricsMux := http.NewServeMux()
 	metrics.NewHandler(metricsCollector).Register(metricsMux)

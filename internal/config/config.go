@@ -9,16 +9,18 @@ import (
 
 // Config holds the validated application configuration (architecture §26).
 type Config struct {
-	AppEnv               string
-	HTTPPort             string
-	DatabaseURL          string
-	RedisAddr            string
-	RedisPassword        string
-	JWTSecret            string
-	JWTExpirationMinutes int
-	OrderWorkerCount     int
-	MetricsPort          string
-	LogLevel             string
+	AppEnv                string
+	HTTPPort              string
+	DatabaseURL           string
+	RedisAddr             string
+	RedisPassword         string
+	JWTSecret             string
+	JWTExpirationMinutes  int
+	OrderWorkerCount      int
+	OrderMaxRetries       int
+	TransientFailureTotal string
+	MetricsPort           string
+	LogLevel              string
 }
 
 // Load reads configuration using getenv (e.g. os.Getenv). Required variables
@@ -57,6 +59,16 @@ func Load(getenv func(string) string) (*Config, error) {
 		return nil, err
 	}
 	cfg.OrderWorkerCount = workers
+
+	maxRetries, err := intOr(getenv, "ORDER_MAX_RETRIES", 3)
+	if err != nil {
+		return nil, err
+	}
+	if maxRetries < 0 {
+		return nil, fmt.Errorf("config: ORDER_MAX_RETRIES must be >= 0")
+	}
+	cfg.OrderMaxRetries = maxRetries
+	cfg.TransientFailureTotal = getenv("ORDER_TRANSIENT_FAILURE_TOTAL")
 
 	if !validLogLevel(cfg.LogLevel) {
 		return nil, fmt.Errorf("config: invalid LOG_LEVEL %q", cfg.LogLevel)

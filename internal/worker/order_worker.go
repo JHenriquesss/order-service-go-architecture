@@ -11,18 +11,24 @@ import (
 
 // OrderWorker supervises N context-aware workers consuming from OrderQueue.
 type OrderWorker struct {
-	queue     order.OrderQueue
-	service   *order.Service
-	processor order.PaymentProcessor
-	workers   int
-	logger    *slog.Logger
+	queue      order.OrderQueue
+	retryQueue order.RetryQueue
+	service    *order.Service
+	processor  order.PaymentProcessor
+	maxRetries int
+	workers    int
+	logger     *slog.Logger
 }
 
-// New builds an order worker pool. workers must be >= 1.
+// New builds an order worker pool. workers must be >= 1; maxRetries is the
+// maximum number of re-tries after the first processing attempt (0 dead-letters
+// on the first transient failure).
 func New(
 	queue order.OrderQueue,
+	retryQueue order.RetryQueue,
 	service *order.Service,
 	processor order.PaymentProcessor,
+	maxRetries int,
 	workers int,
 	logger *slog.Logger,
 ) *OrderWorker {
@@ -30,11 +36,13 @@ func New(
 		logger = slog.Default()
 	}
 	return &OrderWorker{
-		queue:     queue,
-		service:   service,
-		processor: processor,
-		workers:   workers,
-		logger:    logger,
+		queue:      queue,
+		retryQueue: retryQueue,
+		service:    service,
+		processor:  processor,
+		maxRetries: maxRetries,
+		workers:    workers,
+		logger:     logger,
 	}
 }
 
@@ -58,11 +66,52 @@ func (w *OrderWorker) runLoop(ctx context.Context, workerID int) {
 			return
 		}
 		if err := w.service.Process(context.Background(), msg.OrderID, w.processor); err != nil {
-			w.logger.Error("worker failed to process message",
-				"worker_id", workerID,
-				"order_id", msg.OrderID.String(),
-				"error", err.Error(),
-			)
+			w.handleProcessError(workerID, msg, err)
 		}
 	}
+}
+
+func (w *OrderWorker) handleProcessError(workerID int, msg order.OrderCreatedMessage, processErr error) {
+	w.logger.Error("worker failed to process message",
+		"worker_id", workerID,
+		"order_id", msg.OrderID.String(),
+		"retry_count", msg.RetryCount,
+		"error", processErr.Error(),
+	)
+
+	if msg.RetryCount < w.maxRetries {
+		retryMsg := msg
+		retryMsg.RetryCount++
+		if err := w.retryQueue.Requeue(context.Background(), retryMsg); err != nil {
+			w.logger.Error("failed to requeue message after transient failure",
+				"worker_id", workerID,
+				"order_id", msg.OrderID.String(),
+				"retry_count", retryMsg.RetryCount,
+				"error", err.Error(),
+			)
+			return
+		}
+		w.logger.Warn("requeued message after transient failure",
+			"worker_id", workerID,
+			"order_id", msg.OrderID.String(),
+			"retry_count", retryMsg.RetryCount,
+		)
+		return
+	}
+
+	if err := w.retryQueue.DeadLetter(context.Background(), msg); err != nil {
+		w.logger.Error("failed to move message to dead-letter queue",
+			"worker_id", workerID,
+			"order_id", msg.OrderID.String(),
+			"retry_count", msg.RetryCount,
+			"error", err.Error(),
+		)
+		return
+	}
+	w.logger.Error("message moved to dead-letter queue after exhausting retries",
+		"worker_id", workerID,
+		"order_id", msg.OrderID.String(),
+		"retry_count", msg.RetryCount,
+		"max_retries", w.maxRetries,
+	)
 }
