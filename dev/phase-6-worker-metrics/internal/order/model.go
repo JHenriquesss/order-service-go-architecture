@@ -6,10 +6,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"order-service-go/internal/money"
+	"order-service-worker/internal/money"
 )
 
-// Order represents a customer purchase (architecture Â§6).
+// Order represents a customer purchase (architecture §6).
 type Order struct {
 	ID          uuid.UUID
 	CustomerID  uuid.UUID
@@ -21,7 +21,7 @@ type Order struct {
 	ProcessedAt *time.Time
 }
 
-// OrderItem represents one product inside an order (architecture Â§6).
+// OrderItem represents one product inside an order (architecture §6).
 type OrderItem struct {
 	ID         uuid.UUID
 	OrderID    uuid.UUID

@@ -10,6 +10,7 @@ import (
 
 	"order-service-go/internal/auth"
 	"order-service-go/internal/customer"
+	"order-service-go/internal/metrics"
 	"order-service-go/internal/middleware"
 	"order-service-go/internal/order"
 	"order-service-go/internal/product"
@@ -19,7 +20,7 @@ import (
 // wrap all routes. Auth endpoints are public; /api/users is an ADMIN-only route
 // demonstrating the auth + role middleware against the authorization matrix
 // (architecture §15).
-func New(log *slog.Logger, authHandler *auth.Handler, customerHandler *customer.Handler, productHandler *product.Handler, orderHandler *order.Handler, verifier middleware.TokenVerifier) http.Handler {
+func New(log *slog.Logger, authHandler *auth.Handler, customerHandler *customer.Handler, productHandler *product.Handler, orderHandler *order.Handler, metricsCollector *metrics.Collector, verifier middleware.TokenVerifier) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -27,6 +28,9 @@ func New(log *slog.Logger, authHandler *auth.Handler, customerHandler *customer.
 	r.Use(middleware.Logging(log))
 
 	r.Get("/health", health)
+	// /metrics is an infrastructure endpoint (architecture §11), unauthenticated
+	// like /health for scrape compatibility.
+	r.Handle("/metrics", metrics.NewHandler(metricsCollector))
 	r.Mount("/api/auth", authHandler.Routes())
 
 	r.Group(func(protected chi.Router) {

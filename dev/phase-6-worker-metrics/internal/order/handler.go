@@ -6,11 +6,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	apperrors "order-service-go/internal/errors"
-	"order-service-go/internal/middleware"
+	"order-service-worker/internal/auth"
+
+	apperrors "order-service-worker/internal/errors"
 )
 
 // Handler exposes the order endpoints (architecture §11). It stays thin: decode,
@@ -24,28 +24,20 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
-// Routes returns the order routes as a chi router, mounted at /api/orders by the
-// server. Authentication and role authorization are applied around this mount.
-func (h *Handler) Routes() http.Handler {
-	r := chi.NewRouter()
-	r.Post("/", h.Create)
-	r.Get("/", h.List)
-	r.Get("/{id}", h.Get)
-	r.Patch("/{id}/cancel", h.Cancel)
-	r.Patch("/{id}/ship", h.Ship)
-	return r
+// Register mounts the order routes onto mux.
+func (h *Handler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/orders", h.Create)
+	mux.HandleFunc("GET /api/orders", h.List)
+	mux.HandleFunc("GET /api/orders/{id}", h.Get)
+	mux.HandleFunc("PATCH /api/orders/{id}/cancel", h.Cancel)
+	mux.HandleFunc("PATCH /api/orders/{id}/ship", h.Ship)
 }
 
 // Create handles POST /api/orders.
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
-	rawID, ok := middleware.UserIDFromContext(r.Context())
+	identity, ok := auth.IdentityFromContext(r.Context())
 	if !ok {
 		apperrors.Write(w, apperrors.Unauthorized("Authentication required"))
-		return
-	}
-	createdBy, err := uuid.Parse(rawID)
-	if err != nil {
-		apperrors.Write(w, apperrors.Unauthorized("Invalid authenticated user"))
 		return
 	}
 	var input CreateOrderInput
@@ -53,7 +45,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		apperrors.Write(w, err)
 		return
 	}
-	out, err := h.service.Create(r.Context(), createdBy, input)
+	out, err := h.service.Create(r.Context(), identity.UserID, input)
 	if err != nil {
 		apperrors.Write(w, err)
 		return
@@ -173,7 +165,7 @@ func parseIntParam(raw string) (int, error) {
 }
 
 func pathID(r *http.Request) (uuid.UUID, error) {
-	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		return uuid.Nil, apperrors.Validation("invalid order id")
 	}

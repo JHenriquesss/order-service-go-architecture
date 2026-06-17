@@ -26,7 +26,7 @@ func newHandlerTestEnv(t *testing.T) (http.Handler, uuid.UUID, uuid.UUID) {
 	products := &FakeProductLookup{Products: map[uuid.UUID]Product{
 		productID: {ID: productID, Price: price, Active: true},
 	}}
-	svc := NewService(repo, customers, products, &FakeProducer{}, nil)
+	svc := NewService(repo, customers, products, &FakeProducer{}, nil, noopMetrics{}, nil)
 	svc.now = func() time.Time { return time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC) }
 	return NewHandler(svc).Routes(), customerID, productID
 }
@@ -122,5 +122,46 @@ func TestHandlerCreateInvalidJSON(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func createOrder(t *testing.T, h http.Handler, customerID, productID uuid.UUID) OrderOutput {
+	t.Helper()
+	body, _ := json.Marshal(CreateOrderInput{
+		CustomerID: customerID,
+		Items:      []CreateOrderItemInput{{ProductID: productID, Quantity: 1}},
+	})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, authed(httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: expected 201, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var out OrderOutput
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	return out
+}
+
+func TestHandlerCancelCreatedOrderReturns200(t *testing.T) {
+	h, customerID, productID := newHandlerTestEnv(t)
+	created := createOrder(t, h, customerID, productID)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/"+created.ID.String()+"/cancel", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cancel: expected 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var out OrderOutput
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if out.Status != StatusCanceled {
+		t.Fatalf("expected CANCELED, got %s", out.Status)
+	}
+}
+
+func TestHandlerShipCreatedOrderReturns400(t *testing.T) {
+	h, customerID, productID := newHandlerTestEnv(t)
+	created := createOrder(t, h, customerID, productID)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/"+created.ID.String()+"/ship", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("ship CREATED: expected 400, got %d", rec.Code)
 	}
 }

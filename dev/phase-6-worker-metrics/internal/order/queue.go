@@ -9,10 +9,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// OrderCreatedEvent is the queue event name (architecture Â§9).
+// OrderCreatedEvent is the queue event name (architecture §9).
 const OrderCreatedEvent = "ORDER_CREATED"
 
-// OrderCreatedMessage is the Redis queue payload (architecture Â§9).
+// OrderCreatedMessage is the Redis queue payload (architecture §9).
 type OrderCreatedMessage struct {
 	OrderID   uuid.UUID `json:"order_id"`
 	Event     string    `json:"event"`

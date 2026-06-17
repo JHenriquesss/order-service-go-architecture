@@ -13,6 +13,7 @@ import (
 
 	"order-service-go/internal/auth"
 	"order-service-go/internal/customer"
+	"order-service-go/internal/metrics"
 	"order-service-go/internal/order"
 	"order-service-go/internal/product"
 )
@@ -38,9 +39,11 @@ func newTestServer(t *testing.T) (*httptest.Server, *auth.TokenManager) {
 		&order.FakeProductLookup{Products: nil},
 		&order.FakeProducer{},
 		nil,
+		metrics.NewCollector(),
+		discardLogger(),
 	)
 	orderHandler := order.NewHandler(orderSvc)
-	srv := httptest.NewServer(New(discardLogger(), auth.NewHandler(svc), customerHandler, productHandler, orderHandler, tm))
+	srv := httptest.NewServer(New(discardLogger(), auth.NewHandler(svc), customerHandler, productHandler, orderHandler, metrics.NewCollector(), tm))
 	t.Cleanup(srv.Close)
 	return srv, tm
 }

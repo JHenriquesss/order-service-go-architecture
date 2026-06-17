@@ -1,6 +1,7 @@
-// Command worker is the background order processor. This phase ships a
-// compiling stub that loads config, logs, and blocks until shutdown; the real
-// Redis consume/process loop arrives in Phase 6.
+// Command worker consumes order-created messages from Redis and drives each
+// order through processing. It shares the order domain with the API; the two
+// run as separate processes communicating via Redis and (in production) a
+// shared PostgreSQL database.
 package main
 
 import (
@@ -10,8 +11,14 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/redis/go-redis/v9"
+
 	"order-service-go/internal/config"
 	"order-service-go/internal/logger"
+	"order-service-go/internal/metrics"
+	"order-service-go/internal/order"
+	"order-service-go/internal/queue"
+	"order-service-go/internal/worker"
 )
 
 func main() {
@@ -26,14 +33,28 @@ func run() error {
 	if err != nil {
 		return err
 	}
-
 	log := logger.New(cfg.LogLevel, os.Stdout)
-	log.Info("worker started", "worker_count", cfg.OrderWorkerCount, "app_env", cfg.AppEnv)
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	redisClient := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPassword})
+	defer func() { _ = redisClient.Close() }()
+
+	repo := order.NewInMemoryRepository()
+	svc := order.NewService(repo, nil, nil, nil, nil, metrics.NewCollector(), log)
+	consumer := queue.NewOrderConsumer(redisClient)
+	pool := worker.New(consumer, svc, simulatedProcessor{}, cfg.OrderWorkerCount, log)
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	<-ctx.Done()
-	log.Info("worker shutting down")
+	log.Info("worker pool starting", "workers", cfg.OrderWorkerCount)
+	pool.Run(ctx)
+	log.Info("worker pool stopped")
+	return nil
+}
+
+// simulatedProcessor approves every order (architecture §9: simulate payment).
+type simulatedProcessor struct{}
+
+func (simulatedProcessor) ProcessPayment(context.Context, *order.Order) error {
 	return nil
 }

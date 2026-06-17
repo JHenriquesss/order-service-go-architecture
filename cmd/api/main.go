@@ -20,6 +20,7 @@ import (
 	"order-service-go/internal/customer"
 	"order-service-go/internal/database"
 	"order-service-go/internal/logger"
+	"order-service-go/internal/metrics"
 	"order-service-go/internal/order"
 	"order-service-go/internal/product"
 	"order-service-go/internal/queue"
@@ -62,16 +63,19 @@ func run() error {
 	redisClient := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPassword})
 	defer func() { _ = redisClient.Close() }()
 	orderProducer := queue.NewOrderProducer(redisClient)
+	metricsCollector := metrics.NewCollector()
 	orderSvc := order.NewService(
 		order.NewInMemoryRepository(),
 		customerLookup{svc: customerSvc},
 		productLookup{svc: productSvc},
 		orderProducer,
 		nil,
+		metricsCollector,
+		log,
 	)
 	orderHandler := order.NewHandler(orderSvc)
 
-	handler := server.New(log, authHandler, customerHandler, productHandler, orderHandler, tokens)
+	handler := server.New(log, authHandler, customerHandler, productHandler, orderHandler, metricsCollector, tokens)
 	addr := ":" + cfg.HTTPPort
 	log.Info("starting api server", "addr", addr, "app_env", cfg.AppEnv)
 

@@ -8,20 +8,18 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
-	"order-service-go/internal/pagination"
 )
 
 // ErrOrderNotFound is the domain not-found signal for orders.
 var ErrOrderNotFound = errors.New("order not found")
 
-// OrderRepository is the persistence port (architecture Ã‚Â§18).
+// OrderRepository is the persistence port (architecture §18).
 type OrderRepository interface {
 	CreateWithItems(ctx context.Context, order *Order, items []OrderItem) error
 	FindByID(ctx context.Context, id uuid.UUID) (*Order, []OrderItem, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status OrderStatus) error
 	MarkProcessed(ctx context.Context, id uuid.UUID, status OrderStatus, processedAt time.Time) error
-	List(ctx context.Context, filter OrderFilter) (*pagination.Page[Order], error)
+	List(ctx context.Context, filter OrderFilter) (*Page[Order], error)
 }
 
 // InMemoryRepository is a concurrency-safe in-memory OrderRepository for tests.
@@ -110,7 +108,7 @@ func (r *InMemoryRepository) MarkProcessed(_ context.Context, id uuid.UUID, stat
 	return nil
 }
 
-func (r *InMemoryRepository) List(_ context.Context, filter OrderFilter) (*pagination.Page[Order], error) {
+func (r *InMemoryRepository) List(_ context.Context, filter OrderFilter) (*Page[Order], error) {
 	r.mu.RLock()
 	matched := make([]Order, 0, len(r.orders))
 	for _, o := range r.orders {
@@ -142,7 +140,7 @@ func (r *InMemoryRepository) List(_ context.Context, filter OrderFilter) (*pagin
 		totalPages = (total + filter.PageSize - 1) / filter.PageSize
 	}
 
-	return &pagination.Page[Order]{
+	return &Page[Order]{
 		Items:      matched[start:end],
 		Page:       filter.Page,
 		PageSize:   filter.PageSize,

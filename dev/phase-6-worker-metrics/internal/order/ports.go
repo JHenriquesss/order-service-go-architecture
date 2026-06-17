@@ -6,19 +6,19 @@ import (
 
 	"github.com/google/uuid"
 
-	"order-service-go/internal/money"
+	"order-service-worker/internal/money"
 )
 
 // ErrNotFound is returned when a customer, product, or order does not exist.
 var ErrNotFound = errors.New("resource not found")
 
-// Customer is the minimal customer view this phase needs (architecture Â§6).
+// Customer is the minimal customer view this phase needs (architecture §6).
 type Customer struct {
 	ID     uuid.UUID
 	Active bool
 }
 
-// Product is the minimal product view this phase needs (architecture Â§6).
+// Product is the minimal product view this phase needs (architecture §6).
 type Product struct {
 	ID     uuid.UUID
 	Price  money.Money
@@ -35,7 +35,7 @@ type ProductLookup interface {
 	FindManyByID(ctx context.Context, ids []uuid.UUID) ([]Product, error)
 }
 
-// Metrics records operational counters (architecture Â§22).
+// Metrics records operational counters (architecture §22).
 type Metrics interface {
 	IncOrdersCreated()
 	IncOrdersProcessed()

@@ -8,10 +8,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"order-service-go/internal/money"
-	"order-service-go/internal/pagination"
+	"order-service-worker/internal/money"
 
-	apperrors "order-service-go/internal/errors"
+	apperrors "order-service-worker/internal/errors"
 )
 
 const (
@@ -35,7 +34,7 @@ func (l *slogInconsistencyLogger) LogPublishFailureAfterCommit(orderID uuid.UUID
 	)
 }
 
-// Service holds order business rules (architecture Ã‚Â§19, Ã‚Â§20).
+// Service holds order business rules (architecture §19, §20).
 type Service struct {
 	repo       OrderRepository
 	customers  CustomerLookup
@@ -175,7 +174,7 @@ func (s *Service) Create(ctx context.Context, createdBy uuid.UUID, input CreateO
 	return &out, nil
 }
 
-// Process drives CREATEDÃ¢â€ â€™PROCESSINGÃ¢â€ â€™PAID|FAILED (BR-ORD-009, BR-ORD-010).
+// Process drives CREATED→PROCESSING→PAID|FAILED (BR-ORD-009, BR-ORD-010).
 // Non-CREATED orders and missing orders are ignored without error.
 func (s *Service) Process(ctx context.Context, orderID uuid.UUID, processor PaymentProcessor) error {
 	if orderID == uuid.Nil {
@@ -270,7 +269,7 @@ func (s *Service) FindByID(ctx context.Context, id uuid.UUID) (*OrderOutput, err
 }
 
 // List returns a validated, bounded page of orders matching the filter.
-func (s *Service) List(ctx context.Context, filter OrderFilter) (*pagination.Page[OrderOutput], error) {
+func (s *Service) List(ctx context.Context, filter OrderFilter) (*Page[OrderOutput], error) {
 	if filter.Page == 0 {
 		filter.Page = 1
 	}
@@ -301,7 +300,7 @@ func (s *Service) List(ctx context.Context, filter OrderFilter) (*pagination.Pag
 		items = append(items, toOutput(&page.Items[i], orderItems))
 	}
 
-	return &pagination.Page[OrderOutput]{
+	return &Page[OrderOutput]{
 		Items:      items,
 		Page:       page.Page,
 		PageSize:   page.PageSize,
