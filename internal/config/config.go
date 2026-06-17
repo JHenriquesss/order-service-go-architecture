@@ -17,6 +17,7 @@ type Config struct {
 	JWTSecret            string
 	JWTExpirationMinutes int
 	OrderWorkerCount     int
+	MetricsPort          string
 	LogLevel             string
 }
 
@@ -26,6 +27,7 @@ func Load(getenv func(string) string) (*Config, error) {
 	cfg := &Config{
 		AppEnv:        valueOr(getenv, "APP_ENV", "development"),
 		HTTPPort:      valueOr(getenv, "HTTP_PORT", "8080"),
+		MetricsPort:   valueOr(getenv, "METRICS_PORT", "9090"),
 		DatabaseURL:   getenv("DATABASE_URL"),
 		RedisAddr:     getenv("REDIS_ADDR"),
 		RedisPassword: getenv("REDIS_PASSWORD"),

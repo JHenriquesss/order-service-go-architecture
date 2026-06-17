@@ -78,8 +78,26 @@ services:
       REDIS_ADDR: redis:6379
       JWT_SECRET: change-me
       ORDER_WORKER_COUNT: 3
+      METRICS_PORT: 9090
       LOG_LEVEL: info
+    ports:
+      - "9090:9090"
     command: ["/app/worker"]
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: order-service-prometheus
+    depends_on:
+      - api
+      - worker
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
 
 volumes:
   order_service_postgres_data:

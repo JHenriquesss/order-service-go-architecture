@@ -61,4 +61,19 @@ func TestE2EWorkflowReachesPaidAndIncrementsMetrics(t *testing.T) {
 	if afterCreated <= beforeCreated {
 		t.Fatalf("orders_created_total did not increase: before=%d after=%d", beforeCreated, afterCreated)
 	}
+
+	workerBase := requireWorkerMetricsEnv(t)
+	deadline := time.Now().Add(30 * time.Second)
+	var processed int64
+	for time.Now().Before(deadline) {
+		body := fetchWorkerMetrics(t, workerBase)
+		if v, ok := parseMetricValue(body, "orders_processed_total"); ok && v >= 1 {
+			processed = v
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if processed < 1 {
+		t.Fatalf("worker orders_processed_total did not reach >= 1 within timeout")
+	}
 }

@@ -36,6 +36,15 @@ func requireAPIEnv(t *testing.T) string {
 	return apiBase
 }
 
+func requireWorkerMetricsEnv(t *testing.T) string {
+	t.Helper()
+	base := os.Getenv("WORKER_METRICS_URL")
+	if base == "" {
+		base = "http://localhost:9090"
+	}
+	return base
+}
+
 func requireE2EEnv(t *testing.T) (databaseURL, redisAddr, apiBase string) {
 	t.Helper()
 	databaseURL = requireEnv(t, "DATABASE_URL")

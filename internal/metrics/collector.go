@@ -1,74 +1,71 @@
-// Package metrics provides concurrency-safe operational counters (architecture Â§22).
+// Package metrics provides operational counters backed by Prometheus (architecture §22).
 package metrics
 
 import (
-	"fmt"
-	"sync"
-	"sync/atomic"
+	"net/http"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// Collector stores in-memory counters for orders and processing duration.
+// Collector stores order counters and processing duration in a private registry.
 type Collector struct {
-	created   atomic.Int64
-	processed atomic.Int64
-	failed    atomic.Int64
+	reg *prometheus.Registry
 
-	mu            sync.Mutex
-	durationSum   float64
-	durationCount int64
+	ordersCreated   prometheus.Counter
+	ordersProcessed prometheus.Counter
+	ordersFailed    prometheus.Counter
+	duration        prometheus.Histogram
 }
 
-// NewCollector builds an empty metrics collector.
+// NewCollector builds an empty metrics collector with a dedicated registry.
 func NewCollector() *Collector {
-	return &Collector{}
+	reg := prometheus.NewRegistry()
+	c := &Collector{reg: reg}
+
+	c.ordersCreated = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "orders_created_total",
+		Help: "Total number of orders created.",
+	})
+	c.ordersProcessed = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "orders_processed_total",
+		Help: "Total number of orders processed successfully.",
+	})
+	c.ordersFailed = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "orders_failed_total",
+		Help: "Total number of orders that failed processing.",
+	})
+	c.duration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "orders_processing_duration_seconds",
+		Help:    "Order processing duration in seconds.",
+		Buckets: prometheus.DefBuckets,
+	})
+
+	reg.MustRegister(c.ordersCreated, c.ordersProcessed, c.ordersFailed, c.duration)
+	return c
 }
 
 // IncOrdersCreated increments orders_created_total.
 func (c *Collector) IncOrdersCreated() {
-	c.created.Add(1)
+	c.ordersCreated.Inc()
 }
 
 // IncOrdersProcessed increments orders_processed_total.
 func (c *Collector) IncOrdersProcessed() {
-	c.processed.Add(1)
+	c.ordersProcessed.Inc()
 }
 
 // IncOrdersFailed increments orders_failed_total.
 func (c *Collector) IncOrdersFailed() {
-	c.failed.Add(1)
+	c.ordersFailed.Inc()
 }
 
-// RecordProcessingDuration adds a processing duration sample in seconds.
+// RecordProcessingDuration observes a processing duration sample in seconds.
 func (c *Collector) RecordProcessingDuration(seconds float64) {
-	c.mu.Lock()
-	c.durationSum += seconds
-	c.durationCount++
-	c.mu.Unlock()
+	c.duration.Observe(seconds)
 }
 
-// Snapshot returns current counter values.
-func (c *Collector) Snapshot() (created, processed, failed int64, sum float64, count int64) {
-	c.mu.Lock()
-	sum = c.durationSum
-	count = c.durationCount
-	c.mu.Unlock()
-	return c.created.Load(), c.processed.Load(), c.failed.Load(), sum, count
-}
-
-// RenderText produces the architecture Â§22 plain-text metrics format.
-func (c *Collector) RenderText() string {
-	created, processed, failed, sum, count := c.Snapshot()
-	avg := 0.0
-	if count > 0 {
-		avg = sum / float64(count)
-	}
-	return fmt.Sprintf(
-		"orders_created_total %d\n"+
-			"orders_processed_total %d\n"+
-			"orders_failed_total %d\n"+
-			"orders_processing_duration_seconds_sum %.2f\n"+
-			"orders_processing_duration_seconds_count %d\n"+
-			"orders_processing_duration_seconds_avg %.2f\n",
-		created, processed, failed, sum, count, avg,
-	)
+// Handler returns the Prometheus exposition handler for this collector's registry.
+func (c *Collector) Handler() http.Handler {
+	return promhttp.HandlerFor(c.reg, promhttp.HandlerOpts{})
 }

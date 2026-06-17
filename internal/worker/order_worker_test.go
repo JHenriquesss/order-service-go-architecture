@@ -3,7 +3,11 @@ package worker
 import (
 	"context"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"runtime"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,6 +46,26 @@ func setupWorkerTest(t *testing.T, workers int) (*order.InMemoryRepository, *ord
 	return repo, queue, collector, svc, orderID
 }
 
+func metricCounterValue(t *testing.T, c *metrics.Collector, name string) float64 {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	c.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	for _, line := range strings.Split(rec.Body.String(), "\n") {
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, name+" ") {
+			v, err := strconv.ParseFloat(strings.TrimPrefix(line, name+" "), 64)
+			if err != nil {
+				t.Fatalf("parse %s: %v", name, err)
+			}
+			return v
+		}
+	}
+	t.Fatalf("%s missing from metrics", name)
+	return 0
+}
+
 func TestWorkerProcessesCreatedOrderToPaid(t *testing.T) {
 	repo, queue, collector, svc, orderID := setupWorkerTest(t, 1)
 	proc := &order.FakePaymentProcessor{}
@@ -59,8 +83,11 @@ func TestWorkerProcessesCreatedOrderToPaid(t *testing.T) {
 	cancel()
 	<-done
 
-	if _, processed, _, _, count := collector.Snapshot(); processed != 1 || count != 1 {
-		t.Fatalf("processed=%d count=%d", processed, count)
+	if got := metricCounterValue(t, collector, "orders_processed_total"); got != 1 {
+		t.Fatalf("processed=%v", got)
+	}
+	if got := metricCounterValue(t, collector, "orders_processing_duration_seconds_count"); got != 1 {
+		t.Fatalf("duration count=%v", got)
 	}
 }
 
@@ -78,8 +105,8 @@ func TestWorkerProcessingErrorIncrementsFailedMetric(t *testing.T) {
 	cancel()
 	<-done
 
-	if _, _, failed, _, _ := collector.Snapshot(); failed != 1 {
-		t.Fatalf("failed metric %d", failed)
+	if got := metricCounterValue(t, collector, "orders_failed_total"); got != 1 {
+		t.Fatalf("failed metric %v", got)
 	}
 }
 
@@ -92,17 +119,12 @@ func TestWorkerIgnoresNonCreatedOrder(t *testing.T) {
 	go func() { New(queue, svc, &order.FakePaymentProcessor{}, 1, nil).Run(ctx); close(done) }()
 
 	queue.Enqueue(order.OrderCreatedMessage{OrderID: orderID, Event: order.OrderCreatedEvent})
-	for i := 0; i < 1000; i++ {
-		if _, processed, _, _, _ := collector.Snapshot(); processed > 0 {
-			t.Fatal("processed non-CREATED order")
-		}
-		runtime.Gosched()
-	}
+	time.Sleep(200 * time.Millisecond)
 	cancel()
 	<-done
 
-	if _, processed, _, _, _ := collector.Snapshot(); processed != 0 {
-		t.Fatalf("processed %d, want 0", processed)
+	if got := metricCounterValue(t, collector, "orders_processed_total"); got != 0 {
+		t.Fatalf("processed %v, want 0", got)
 	}
 }
 
@@ -117,8 +139,8 @@ func TestWorkerHandlesUnknownOrderIDWithoutCrash(t *testing.T) {
 	cancel()
 	<-done
 
-	if _, processed, _, _, _ := collector.Snapshot(); processed != 0 {
-		t.Fatalf("processed %d", processed)
+	if got := metricCounterValue(t, collector, "orders_processed_total"); got != 0 {
+		t.Fatalf("processed %v", got)
 	}
 }
 
@@ -142,8 +164,8 @@ func TestWorkerShutdownDrainsInFlightWork(t *testing.T) {
 	<-done
 
 	waitProcessed(t, repo, orderID, order.StatusPaid)
-	if _, processed, _, _, _ := collector.Snapshot(); processed != 1 {
-		t.Fatalf("processed %d", processed)
+	if got := metricCounterValue(t, collector, "orders_processed_total"); got != 1 {
+		t.Fatalf("processed %v", got)
 	}
 }
 

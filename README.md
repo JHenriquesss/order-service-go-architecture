@@ -47,7 +47,7 @@ From the repository root:
 make compose-up
 ```
 
-This starts PostgreSQL and Redis (with healthchecks), applies SQL migrations via a one-shot `migrate` service, then builds and runs the API and worker. The API listens on `http://localhost:8080`.
+This starts PostgreSQL and Redis (with healthchecks), applies SQL migrations via a one-shot `migrate` service, then builds and runs the API, worker, and Prometheus. The API listens on `http://localhost:8080`; worker metrics on `http://localhost:9090`; Prometheus on `http://localhost:9091`.
 
 If host port `5432` is already in use, set `POSTGRES_HOST_PORT` (for example `POSTGRES_HOST_PORT=5433 make compose-up`) and point `DATABASE_URL` at that port for host-side tools and integration tests.
 
@@ -142,16 +142,27 @@ Swagger UI is mounted at `GET /swagger/index.html` when the root application int
 
 ## Metrics
 
-`GET /metrics` returns plain-text counters:
+Both the **API** (`:8080`) and **worker** (`:9090`, `METRICS_PORT`) expose Prometheus exposition at `GET /metrics`. A dev **Prometheus** service scrapes both jobs when you bring the stack up with `make compose-up`.
 
-```text
-orders_created_total
-orders_processed_total
-orders_failed_total
-orders_processing_duration_seconds_sum
-orders_processing_duration_seconds_count
-orders_processing_duration_seconds_avg
+| Process | Endpoints | Port (default) |
+|---------|-----------|----------------|
+| API | `GET /metrics`, `GET /health` | 8080 |
+| Worker | `GET /metrics`, `GET /health` | 9090 (`METRICS_PORT`) |
+| Prometheus UI | targets + query | 9091 (host) → 9090 (container) |
+
+Exposed series:
+
+- `orders_created_total` (API increments on create)
+- `orders_processed_total`, `orders_failed_total` (worker increments on process/failure)
+- `orders_processing_duration_seconds_{sum,count,bucket}` (worker, successful processing)
+
+Average processing duration is **not** an exposed series. Derive it in PromQL:
+
+```promql
+rate(orders_processing_duration_seconds_sum[5m]) / rate(orders_processing_duration_seconds_count[5m])
 ```
+
+Verify scrape targets after `make compose-up`: open `http://localhost:9091/targets` — both `api` and `worker` jobs should be **UP**.
 
 ## Tests
 
@@ -173,6 +184,7 @@ make compose-up
 export DATABASE_URL=postgres://orders:orders@localhost:5432/orders?sslmode=disable
 export REDIS_ADDR=localhost:6379
 export API_BASE_URL=http://localhost:8080
+export WORKER_METRICS_URL=http://localhost:9090
 make test-integration
 ```
 
@@ -183,7 +195,7 @@ make compose-up
 make test-integration
 ```
 
-The suite covers: Postgres customer round-trip, Redis queue publish/consume, E2E happy path (login → customer → product → order → worker → **PAID** + `orders_created_total`), failure path → **FAILED**, unauthenticated **401**, and unreachable Postgres (bad DSN fails loudly).
+The suite covers: Postgres customer round-trip, Redis queue publish/consume, E2E happy path (login → customer → product → order → worker → **PAID** + `orders_created_total` on API and `orders_processed_total` on worker), failure path → **FAILED** + `orders_failed_total` on worker, worker `/health` + `/metrics`, unauthenticated **401**, and unreachable Postgres (bad DSN fails loudly).
 
 When the `integration` tag is set, missing or unreachable services cause tests to **fail** (not skip).
 

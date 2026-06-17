@@ -4,7 +4,7 @@ import (
 	"net/http"
 )
 
-// Handler serves GET /metrics in architecture Â§22 text format.
+// Handler serves GET /metrics in Prometheus exposition format.
 type Handler struct {
 	collector *Collector
 }
@@ -16,12 +16,10 @@ func NewHandler(collector *Collector) *Handler {
 
 // Register mounts GET /metrics on mux.
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /metrics", h.ServeHTTP)
+	mux.Handle("GET /metrics", h.collector.Handler())
 }
 
-// ServeHTTP renders the metrics snapshot as plain text.
-func (h *Handler) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(h.collector.RenderText()))
+// ServeHTTP renders Prometheus exposition for the collector.
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.collector.Handler().ServeHTTP(w, r)
 }

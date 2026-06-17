@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -123,7 +124,11 @@ func (c *apiClient) fetchMetrics(t *testing.T) string {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("GET /metrics: status %d", res.StatusCode)
 	}
-	return string(raw)
+	body := string(raw)
+	if !strings.Contains(body, "# TYPE orders_created_total counter") {
+		t.Fatalf("expected Prometheus exposition from api, got:\n%s", body)
+	}
+	return body
 }
 
 func waitForOrderStatus(t *testing.T, c *apiClient, orderID string, want string, timeout time.Duration) orderResponse {
@@ -144,16 +149,53 @@ func waitForOrderStatus(t *testing.T, c *apiClient, orderID string, want string,
 func parseMetricValue(metrics, name string) (int64, bool) {
 	prefix := name + " "
 	for _, line := range bytes.Split([]byte(metrics), []byte("\n")) {
+		if len(line) == 0 || line[0] == '#' {
+			continue
+		}
 		if bytes.HasPrefix(line, []byte(prefix)) {
-			var v int64
-			_, err := fmt.Sscanf(string(line), name+" %d", &v)
-			if err != nil {
+			fields := bytes.Fields(line)
+			if len(fields) < 2 {
 				return 0, false
+			}
+			var v int64
+			if _, err := fmt.Sscanf(string(fields[1]), "%d", &v); err != nil {
+				// Prometheus may expose counters as floats (e.g. 1.0).
+				var f float64
+				if _, err := fmt.Sscanf(string(fields[1]), "%f", &f); err != nil {
+					return 0, false
+				}
+				return int64(f), true
 			}
 			return v, true
 		}
 	}
 	return 0, false
+}
+
+func fetchWorkerMetrics(t *testing.T, base string) string {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, base+"/metrics", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	client := &http.Client{Timeout: 15 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s/metrics: %v", base, err)
+	}
+	defer res.Body.Close()
+	raw, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("read metrics: %v", err)
+	}
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s/metrics: status %d", base, res.StatusCode)
+	}
+	body := string(raw)
+	if !strings.Contains(body, "# TYPE orders_processed_total counter") {
+		t.Fatalf("expected Prometheus exposition from worker, got:\n%s", body)
+	}
+	return body
 }
 
 type tokenResponse struct {
