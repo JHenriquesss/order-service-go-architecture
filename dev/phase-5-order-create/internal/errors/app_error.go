@@ -13,14 +13,14 @@ const (
 	CodeForbidden          Code = "FORBIDDEN"
 	CodeNotFound           Code = "RESOURCE_NOT_FOUND"
 	CodeDuplicate          Code = "DUPLICATE_RESOURCE"
-	CodeInvalidOrderStatus Code = "INVALID_ORDER_STATUS"
 	CodeInactiveCustomer   Code = "INACTIVE_CUSTOMER"
 	CodeInactiveProduct    Code = "INACTIVE_PRODUCT"
+	CodeInvalidOrderStatus Code = "INVALID_ORDER_STATUS"
 	CodeInternal           Code = "INTERNAL_ERROR"
 )
 
-// AppError is a domain-aware error carrying an API code, a client-safe
-// message, the HTTP status to respond with, and an optional wrapped cause.
+// AppError is a domain-aware error carrying an API code, a client-safe message,
+// the HTTP status to respond with, and an optional wrapped cause.
 type AppError struct {
 	Code       Code
 	Message    string
@@ -48,8 +48,7 @@ func Validation(message string) *AppError {
 	return New(CodeValidation, message, http.StatusBadRequest, nil)
 }
 
-// Unauthorized reports failed authentication (401). Callers keep the message
-// generic so it never reveals which credential was wrong.
+// Unauthorized reports failed authentication (401).
 func Unauthorized(message string) *AppError {
 	return New(CodeUnauthorized, message, http.StatusUnauthorized, nil)
 }
@@ -69,17 +68,12 @@ func Duplicate(message string) *AppError {
 	return New(CodeDuplicate, message, http.StatusConflict, nil)
 }
 
-// InvalidOrderStatus reports an illegal order status transition (400).
-func InvalidOrderStatus(message string) *AppError {
-	return New(CodeInvalidOrderStatus, message, http.StatusBadRequest, nil)
-}
-
-// InactiveCustomer reports an attempt to use an inactive customer (BR-CUS-003, 400).
+// InactiveCustomer reports BR-CUS-003 (400).
 func InactiveCustomer(message string) *AppError {
 	return New(CodeInactiveCustomer, message, http.StatusBadRequest, nil)
 }
 
-// InactiveProduct reports an attempt to use an inactive product (BR-PRD-004, 400).
+// InactiveProduct reports BR-PRD-004 (400).
 func InactiveProduct(message string) *AppError {
 	return New(CodeInactiveProduct, message, http.StatusBadRequest, nil)
 }

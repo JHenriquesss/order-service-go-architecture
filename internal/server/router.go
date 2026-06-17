@@ -11,6 +11,7 @@ import (
 	"order-service-go/internal/auth"
 	"order-service-go/internal/customer"
 	"order-service-go/internal/middleware"
+	"order-service-go/internal/order"
 	"order-service-go/internal/product"
 )
 
@@ -18,7 +19,7 @@ import (
 // wrap all routes. Auth endpoints are public; /api/users is an ADMIN-only route
 // demonstrating the auth + role middleware against the authorization matrix
 // (architecture §15).
-func New(log *slog.Logger, authHandler *auth.Handler, customerHandler *customer.Handler, productHandler *product.Handler, verifier middleware.TokenVerifier) http.Handler {
+func New(log *slog.Logger, authHandler *auth.Handler, customerHandler *customer.Handler, productHandler *product.Handler, orderHandler *order.Handler, verifier middleware.TokenVerifier) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -39,6 +40,8 @@ func New(log *slog.Logger, authHandler *auth.Handler, customerHandler *customer.
 			Mount("/api/customers", customerHandler.Routes())
 		protected.With(middleware.RequireAnyRole(auth.RoleAdmin, auth.RoleOperator)).
 			Mount("/api/products", productHandler.Routes())
+		protected.With(middleware.RequireAnyRole(auth.RoleAdmin, auth.RoleOperator)).
+			Mount("/api/orders", orderHandler.Routes())
 	})
 
 	return r

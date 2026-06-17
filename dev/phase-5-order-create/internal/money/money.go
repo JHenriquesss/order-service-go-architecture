@@ -40,7 +40,7 @@ func (m Money) Add(other Money) Money {
 	return Money{cents: m.cents + other.cents}
 }
 
-// Multiply returns the amount times quantity without using float64.
+// Multiply returns unit price times quantity without using float64.
 func (m Money) Multiply(quantity int) Money {
 	return Money{cents: m.cents * int64(quantity)}
 }

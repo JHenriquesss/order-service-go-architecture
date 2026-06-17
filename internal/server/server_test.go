@@ -13,6 +13,7 @@ import (
 
 	"order-service-go/internal/auth"
 	"order-service-go/internal/customer"
+	"order-service-go/internal/order"
 	"order-service-go/internal/product"
 )
 
@@ -31,7 +32,15 @@ func newTestServer(t *testing.T) (*httptest.Server, *auth.TokenManager) {
 	svc := auth.NewService(auth.NewInMemoryUserRepository(), tm)
 	customerHandler := customer.NewHandler(customer.NewService(customer.NewInMemoryRepository()))
 	productHandler := product.NewHandler(product.NewService(product.NewInMemoryRepository()))
-	srv := httptest.NewServer(New(discardLogger(), auth.NewHandler(svc), customerHandler, productHandler, tm))
+	orderSvc := order.NewService(
+		order.NewInMemoryRepository(),
+		&order.FakeCustomerLookup{Customers: nil},
+		&order.FakeProductLookup{Products: nil},
+		&order.FakeProducer{},
+		nil,
+	)
+	orderHandler := order.NewHandler(orderSvc)
+	srv := httptest.NewServer(New(discardLogger(), auth.NewHandler(svc), customerHandler, productHandler, orderHandler, tm))
 	t.Cleanup(srv.Close)
 	return srv, tm
 }

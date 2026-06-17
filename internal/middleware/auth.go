@@ -63,6 +63,13 @@ func UserIDFromContext(ctx context.Context) (string, bool) {
 	return id, ok
 }
 
+// ContextWithUserID stores a user id the way Authenticator does. It exists so
+// handler tests can exercise routes that read the authenticated user without
+// constructing a full token round-trip.
+func ContextWithUserID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, userIDKey, id)
+}
+
 // RoleFromContext returns the authenticated user's role stored by Authenticator.
 func RoleFromContext(ctx context.Context) (auth.Role, bool) {
 	role, ok := ctx.Value(roleKey).(auth.Role)

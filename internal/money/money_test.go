@@ -96,6 +96,19 @@ func TestMoneyUnmarshalStringFormAndInvalid(t *testing.T) {
 	}
 }
 
+func TestMoneyAddAndMultiply(t *testing.T) {
+	if got := FromCents(8990).Multiply(2); got.Cents() != 17980 {
+		t.Fatalf("Multiply: got %d, want 17980", got.Cents())
+	}
+	sum := FromCents(17980).Add(FromCents(8990))
+	if sum.Cents() != 26970 {
+		t.Fatalf("Add: got %d, want 26970", sum.Cents())
+	}
+	if FromCents(0).Multiply(5).Cents() != 0 {
+		t.Fatal("0 * 5 must be 0")
+	}
+}
+
 func TestMoneyIsPositive(t *testing.T) {
 	if !FromCents(1).IsPositive() {
 		t.Fatal("1 cent must be positive")

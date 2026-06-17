@@ -13,12 +13,16 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	"order-service-go/internal/auth"
 	"order-service-go/internal/config"
 	"order-service-go/internal/customer"
 	"order-service-go/internal/database"
 	"order-service-go/internal/logger"
+	"order-service-go/internal/order"
 	"order-service-go/internal/product"
+	"order-service-go/internal/queue"
 	"order-service-go/internal/server"
 )
 
@@ -50,10 +54,24 @@ func run() error {
 	authService := auth.NewService(auth.NewInMemoryUserRepository(), tokens)
 	authHandler := auth.NewHandler(authService)
 
-	customerHandler := customer.NewHandler(customer.NewService(customer.NewInMemoryRepository()))
-	productHandler := product.NewHandler(product.NewService(product.NewInMemoryRepository()))
+	customerSvc := customer.NewService(customer.NewInMemoryRepository())
+	productSvc := product.NewService(product.NewInMemoryRepository())
+	customerHandler := customer.NewHandler(customerSvc)
+	productHandler := product.NewHandler(productSvc)
 
-	handler := server.New(log, authHandler, customerHandler, productHandler, tokens)
+	redisClient := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPassword})
+	defer func() { _ = redisClient.Close() }()
+	orderProducer := queue.NewOrderProducer(redisClient)
+	orderSvc := order.NewService(
+		order.NewInMemoryRepository(),
+		customerLookup{svc: customerSvc},
+		productLookup{svc: productSvc},
+		orderProducer,
+		nil,
+	)
+	orderHandler := order.NewHandler(orderSvc)
+
+	handler := server.New(log, authHandler, customerHandler, productHandler, orderHandler, tokens)
 	addr := ":" + cfg.HTTPPort
 	log.Info("starting api server", "addr", addr, "app_env", cfg.AppEnv)
 
