@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	apperrors "order-service-go/internal/errors"
+	"order-service-go/internal/pagination"
 )
 
 const (
@@ -18,7 +19,7 @@ const (
 	MaxPageSize = 100
 )
 
-// Service holds the customer business rules (architecture §17). It depends only
+// Service holds the customer business rules (architecture Â§17). It depends only
 // on the CustomerRepository port, so it is unit-tested with the in-memory
 // adapter and no database.
 type Service struct {
@@ -117,7 +118,7 @@ func (s *Service) FindByID(ctx context.Context, id uuid.UUID) (*CustomerOutput, 
 }
 
 // List returns a validated, bounded page of customers matching the filter.
-func (s *Service) List(ctx context.Context, filter CustomerFilter) (*Page[CustomerOutput], error) {
+func (s *Service) List(ctx context.Context, filter CustomerFilter) (*pagination.Page[CustomerOutput], error) {
 	if filter.Page == 0 {
 		filter.Page = 1
 	}
@@ -143,7 +144,7 @@ func (s *Service) List(ctx context.Context, filter CustomerFilter) (*Page[Custom
 	for i := range page.Items {
 		items = append(items, toOutput(&page.Items[i]))
 	}
-	return &Page[CustomerOutput]{
+	return &pagination.Page[CustomerOutput]{
 		Items:      items,
 		Page:       page.Page,
 		PageSize:   page.PageSize,

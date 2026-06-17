@@ -6,7 +6,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// CreateCustomerInput is the decoded body of POST /api/customers (architecture §12).
+// CreateCustomerInput is the decoded body of POST /api/customers (architecture Â§12).
 type CreateCustomerInput struct {
 	Name     string `json:"name"`
 	Document string `json:"document"`
@@ -35,7 +35,7 @@ type CustomerOutput struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// CustomerFilter carries the list query parameters (architecture §13). Active is
+// CustomerFilter carries the list query parameters (architecture Â§13). Active is
 // a pointer so "unset" is distinguishable from "false". Page and PageSize are
 // validated and bounded by the service.
 type CustomerFilter struct {
@@ -44,15 +44,6 @@ type CustomerFilter struct {
 	Active   *bool
 	Page     int
 	PageSize int
-}
-
-// Page is the generic paginated result envelope (architecture §17).
-type Page[T any] struct {
-	Items      []T `json:"items"`
-	Page       int `json:"page"`
-	PageSize   int `json:"page_size"`
-	Total      int `json:"total"`
-	TotalPages int `json:"total_pages"`
 }
 
 func toOutput(c *Customer) CustomerOutput {

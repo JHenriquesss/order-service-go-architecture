@@ -18,6 +18,7 @@ import (
 	"order-service-go/internal/customer"
 	"order-service-go/internal/database"
 	"order-service-go/internal/logger"
+	"order-service-go/internal/product"
 	"order-service-go/internal/server"
 )
 
@@ -50,8 +51,9 @@ func run() error {
 	authHandler := auth.NewHandler(authService)
 
 	customerHandler := customer.NewHandler(customer.NewService(customer.NewInMemoryRepository()))
+	productHandler := product.NewHandler(product.NewService(product.NewInMemoryRepository()))
 
-	handler := server.New(log, authHandler, customerHandler, tokens)
+	handler := server.New(log, authHandler, customerHandler, productHandler, tokens)
 	addr := ":" + cfg.HTTPPort
 	log.Info("starting api server", "addr", addr, "app_env", cfg.AppEnv)
 

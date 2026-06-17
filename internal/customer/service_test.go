@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	apperrors "order-service-go/internal/errors"
+	"order-service-go/internal/pagination"
 )
 
 func newService() *Service {
@@ -251,7 +252,7 @@ func (r faultyRepo) FindByID(context.Context, uuid.UUID) (*Customer, error) {
 func (r faultyRepo) FindByDocument(context.Context, string) (*Customer, error) {
 	return r.findByDocFound, r.findByDocErr
 }
-func (r faultyRepo) List(context.Context, CustomerFilter) (*Page[Customer], error) {
+func (r faultyRepo) List(context.Context, CustomerFilter) (*pagination.Page[Customer], error) {
 	return nil, r.listErr
 }
 

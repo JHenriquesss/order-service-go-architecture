@@ -8,6 +8,8 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+
+	"order-service-go/internal/pagination"
 )
 
 // ErrNotFound is the domain not-found signal returned by the repository when a
@@ -23,7 +25,7 @@ type CustomerRepository interface {
 	Deactivate(ctx context.Context, id uuid.UUID) error
 	FindByID(ctx context.Context, id uuid.UUID) (*Customer, error)
 	FindByDocument(ctx context.Context, document string) (*Customer, error)
-	List(ctx context.Context, filter CustomerFilter) (*Page[Customer], error)
+	List(ctx context.Context, filter CustomerFilter) (*pagination.Page[Customer], error)
 }
 
 // InMemoryRepository is an in-memory CustomerRepository for unit tests. It is
@@ -90,7 +92,7 @@ func (r *InMemoryRepository) FindByDocument(_ context.Context, document string) 
 	return nil, ErrNotFound
 }
 
-func (r *InMemoryRepository) List(_ context.Context, filter CustomerFilter) (*Page[Customer], error) {
+func (r *InMemoryRepository) List(_ context.Context, filter CustomerFilter) (*pagination.Page[Customer], error) {
 	r.mu.RLock()
 	matched := make([]Customer, 0, len(r.items))
 	for _, c := range r.items {
@@ -120,7 +122,7 @@ func (r *InMemoryRepository) List(_ context.Context, filter CustomerFilter) (*Pa
 
 	totalPages := (total + filter.PageSize - 1) / filter.PageSize
 
-	return &Page[Customer]{
+	return &pagination.Page[Customer]{
 		Items:      matched[start:end],
 		Page:       filter.Page,
 		PageSize:   filter.PageSize,

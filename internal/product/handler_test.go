@@ -1,4 +1,4 @@
-package customer
+package product
 
 import (
 	"bytes"
@@ -10,22 +10,21 @@ import (
 
 	"github.com/google/uuid"
 
+	"order-service-go/internal/money"
 	"order-service-go/internal/pagination"
 )
 
-// newTestHandler returns the customer routes backed by an in-memory repository.
+// newTestHandler returns the product routes backed by an in-memory repository.
 // Auth is applied by the server, so these tests exercise the handler directly.
 func newTestHandler() http.Handler {
 	return NewHandler(NewService(NewInMemoryRepository())).Routes()
 }
 
-func do(t *testing.T, srv http.Handler, method, target string, body any) *httptest.ResponseRecorder {
+func do(t *testing.T, srv http.Handler, method, target, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	var buf bytes.Buffer
-	if body != nil {
-		if err := json.NewEncoder(&buf).Encode(body); err != nil {
-			t.Fatalf("encode body: %v", err)
-		}
+	if body != "" {
+		buf.WriteString(body)
 	}
 	req := httptest.NewRequestWithContext(context.Background(), method, target, &buf)
 	rec := httptest.NewRecorder()
@@ -46,38 +45,42 @@ func decodeErrorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 	return resp.Error.Code
 }
 
-func createCustomer(t *testing.T, srv http.Handler, name, document string) CustomerOutput {
+func createProduct(t *testing.T, srv http.Handler, name, sku, price string) ProductOutput {
 	t.Helper()
-	rec := do(t, srv, http.MethodPost, "/", CreateCustomerInput{Name: name, Document: document})
+	body := `{"name":"` + name + `","sku":"` + sku + `","price":` + price + `}`
+	rec := do(t, srv, http.MethodPost, "/", body)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create %q: expected 201, got %d (%s)", name, rec.Code, rec.Body.String())
 	}
-	var out CustomerOutput
+	var out ProductOutput
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatalf("decode created customer: %v", err)
+		t.Fatalf("decode created product: %v", err)
 	}
 	return out
 }
 
 func TestHandlerCreateAndGet(t *testing.T) {
 	srv := newTestHandler()
-	created := createCustomer(t, srv, "ACME Ltd", "12345678000199")
-	rec := do(t, srv, http.MethodGet, "/"+created.ID.String(), nil)
+	created := createProduct(t, srv, "Wireless Mouse", "MOUSE-001", "89.90")
+	if created.Price.Cents() != 8990 {
+		t.Fatalf("price not preserved: got %d cents", created.Price.Cents())
+	}
+	rec := do(t, srv, http.MethodGet, "/"+created.ID.String(), "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get: expected 200, got %d", rec.Code)
 	}
-	var got CustomerOutput
+	var got ProductOutput
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if got.ID != created.ID {
-		t.Fatalf("expected id %s, got %s", created.ID, got.ID)
+	if got.ID != created.ID || got.Price != money.FromCents(8990) {
+		t.Fatalf("unexpected product: %+v", got)
 	}
 }
 
 func TestHandlerCreateMissingNameReturnsValidation(t *testing.T) {
 	srv := newTestHandler()
-	rec := do(t, srv, http.MethodPost, "/", CreateCustomerInput{Document: "DOC-X"})
+	rec := do(t, srv, http.MethodPost, "/", `{"sku":"X","price":10}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
 	}
@@ -86,10 +89,21 @@ func TestHandlerCreateMissingNameReturnsValidation(t *testing.T) {
 	}
 }
 
-func TestHandlerCreateDuplicateReturns409(t *testing.T) {
+func TestHandlerCreateNonPositivePriceReturns400(t *testing.T) {
 	srv := newTestHandler()
-	createCustomer(t, srv, "ACME", "DOC-DUP")
-	rec := do(t, srv, http.MethodPost, "/", CreateCustomerInput{Name: "Other", Document: "DOC-DUP"})
+	rec := do(t, srv, http.MethodPost, "/", `{"name":"X","sku":"X1","price":0}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+	if code := decodeErrorCode(t, rec); code != "VALIDATION_ERROR" {
+		t.Fatalf("expected VALIDATION_ERROR, got %s", code)
+	}
+}
+
+func TestHandlerCreateDuplicateSKUReturns409(t *testing.T) {
+	srv := newTestHandler()
+	createProduct(t, srv, "A", "DUP-SKU", "10.00")
+	rec := do(t, srv, http.MethodPost, "/", `{"name":"B","sku":"DUP-SKU","price":12.00}`)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d", rec.Code)
 	}
@@ -100,7 +114,7 @@ func TestHandlerCreateDuplicateReturns409(t *testing.T) {
 
 func TestHandlerGetUnknownReturns404(t *testing.T) {
 	srv := newTestHandler()
-	rec := do(t, srv, http.MethodGet, "/"+uuid.New().String(), nil)
+	rec := do(t, srv, http.MethodGet, "/"+uuid.New().String(), "")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rec.Code)
 	}
@@ -111,7 +125,7 @@ func TestHandlerGetUnknownReturns404(t *testing.T) {
 
 func TestHandlerInvalidIDReturns400(t *testing.T) {
 	srv := newTestHandler()
-	rec := do(t, srv, http.MethodGet, "/not-a-uuid", nil)
+	rec := do(t, srv, http.MethodGet, "/not-a-uuid", "")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
 	}
@@ -119,31 +133,31 @@ func TestHandlerInvalidIDReturns400(t *testing.T) {
 
 func TestHandlerUpdateChangesFields(t *testing.T) {
 	srv := newTestHandler()
-	created := createCustomer(t, srv, "Old", "DOC-UPD")
+	created := createProduct(t, srv, "Old", "UPD-SKU", "10.00")
 	rec := do(t, srv, http.MethodPut, "/"+created.ID.String(),
-		UpdateCustomerInput{Name: "New", Document: "DOC-UPD", Email: "n@e.com"})
+		`{"name":"New","sku":"UPD-SKU","price":25.50}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update: expected 200, got %d (%s)", rec.Code, rec.Body.String())
 	}
-	var got CustomerOutput
+	var got ProductOutput
 	_ = json.Unmarshal(rec.Body.Bytes(), &got)
-	if got.Name != "New" || got.Email != "n@e.com" {
+	if got.Name != "New" || got.Price.Cents() != 2550 {
 		t.Fatalf("fields not updated: %+v", got)
 	}
 }
 
 func TestHandlerDeactivateThenStillRetrievable(t *testing.T) {
 	srv := newTestHandler()
-	created := createCustomer(t, srv, "ACME", "DOC-DEACT")
-	rec := do(t, srv, http.MethodPatch, "/"+created.ID.String()+"/deactivate", nil)
+	created := createProduct(t, srv, "ACME", "DEACT-SKU", "10.00")
+	rec := do(t, srv, http.MethodPatch, "/"+created.ID.String()+"/deactivate", "")
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("deactivate: expected 204, got %d", rec.Code)
 	}
-	rec = do(t, srv, http.MethodGet, "/"+created.ID.String(), nil)
+	rec = do(t, srv, http.MethodGet, "/"+created.ID.String(), "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get after deactivate: expected 200, got %d", rec.Code)
 	}
-	var got CustomerOutput
+	var got ProductOutput
 	_ = json.Unmarshal(rec.Body.Bytes(), &got)
 	if got.Active {
 		t.Fatal("expected active=false after deactivate")
@@ -152,15 +166,15 @@ func TestHandlerDeactivateThenStillRetrievable(t *testing.T) {
 
 func TestHandlerListFiltersAndPaginates(t *testing.T) {
 	srv := newTestHandler()
-	createCustomer(t, srv, "ACME Ltd", "AAA-1")
-	createCustomer(t, srv, "Globex", "BBB-2")
-	createCustomer(t, srv, "ACME Corp", "AAA-3")
+	createProduct(t, srv, "Wireless Mouse", "MOUSE-1", "10.00")
+	createProduct(t, srv, "Keyboard", "KEY-1", "20.00")
+	createProduct(t, srv, "Wireless Pad", "PAD-1", "5.00")
 
-	rec := do(t, srv, http.MethodGet, "/?name=acme&page=1&page_size=1", nil)
+	rec := do(t, srv, http.MethodGet, "/?name=wireless&page=1&page_size=1", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list: expected 200, got %d", rec.Code)
 	}
-	var page pagination.Page[CustomerOutput]
+	var page pagination.Page[ProductOutput]
 	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
 		t.Fatalf("decode page: %v", err)
 	}
@@ -172,26 +186,15 @@ func TestHandlerListFiltersAndPaginates(t *testing.T) {
 
 func TestHandlerListInvalidPageSizeReturns400(t *testing.T) {
 	srv := newTestHandler()
-	rec := do(t, srv, http.MethodGet, "/?page_size=99999", nil)
+	rec := do(t, srv, http.MethodGet, "/?page_size=99999", "")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
-	}
-	if code := decodeErrorCode(t, rec); code != "VALIDATION_ERROR" {
-		t.Fatalf("expected VALIDATION_ERROR, got %s", code)
 	}
 }
 
 func TestHandlerListNonNumericPageReturns400(t *testing.T) {
 	srv := newTestHandler()
-	rec := do(t, srv, http.MethodGet, "/?page=abc", nil)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", rec.Code)
-	}
-}
-
-func TestHandlerListActiveFilterRejectsNonBool(t *testing.T) {
-	srv := newTestHandler()
-	rec := do(t, srv, http.MethodGet, "/?active=maybe", nil)
+	rec := do(t, srv, http.MethodGet, "/?page=abc", "")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
 	}

@@ -13,6 +13,7 @@ import (
 
 	"order-service-go/internal/auth"
 	"order-service-go/internal/customer"
+	"order-service-go/internal/product"
 )
 
 func discardLogger() *slog.Logger {
@@ -29,7 +30,8 @@ func newTestServer(t *testing.T) (*httptest.Server, *auth.TokenManager) {
 	}
 	svc := auth.NewService(auth.NewInMemoryUserRepository(), tm)
 	customerHandler := customer.NewHandler(customer.NewService(customer.NewInMemoryRepository()))
-	srv := httptest.NewServer(New(discardLogger(), auth.NewHandler(svc), customerHandler, tm))
+	productHandler := product.NewHandler(product.NewService(product.NewInMemoryRepository()))
+	srv := httptest.NewServer(New(discardLogger(), auth.NewHandler(svc), customerHandler, productHandler, tm))
 	t.Cleanup(srv.Close)
 	return srv, tm
 }
