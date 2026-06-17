@@ -12,6 +12,7 @@ import (
 	"order-service-go/internal/customer"
 	"order-service-go/internal/metrics"
 	"order-service-go/internal/middleware"
+	"order-service-go/internal/openapi"
 	"order-service-go/internal/order"
 	"order-service-go/internal/product"
 )
@@ -31,6 +32,9 @@ func New(log *slog.Logger, authHandler *auth.Handler, customerHandler *customer.
 	// /metrics is an infrastructure endpoint (architecture §11), unauthenticated
 	// like /health for scrape compatibility.
 	r.Handle("/metrics", metrics.NewHandler(metricsCollector))
+	// Swagger UI + raw OpenAPI spec (architecture §32), unauthenticated.
+	r.Get(openapi.SwaggerUIPath, openapi.SwaggerUIHandler())
+	r.Get("/swagger/openapi.yaml", openapi.SpecHandler())
 	r.Mount("/api/auth", authHandler.Routes())
 
 	r.Group(func(protected chi.Router) {
