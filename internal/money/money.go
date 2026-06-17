@@ -101,6 +101,18 @@ func ParseNumber(n json.Number) (Money, error) {
 	return ParseString(n.String())
 }
 
+// Decimal returns the amount as a fixed two-decimal string (e.g. "89.90"),
+// suitable for a NUMERIC(15,2) column without ever passing through float64.
+func (m Money) Decimal() string {
+	sign := ""
+	c := m.cents
+	if c < 0 {
+		sign = "-"
+		c = -c
+	}
+	return fmt.Sprintf("%s%d.%02d", sign, c/scale, c%scale)
+}
+
 // MarshalJSON encodes the amount as a JSON number with up to two decimal places.
 func (m Money) MarshalJSON() ([]byte, error) {
 	sign := ""

@@ -1,5 +1,5 @@
-// Package database provides the PostgreSQL connection pool behind a small
-// interface so callers depend on a port, not on pgx directly.
+// Package database provides the PostgreSQL connection pool used by the
+// repositories at composition time.
 package database
 
 import (
@@ -9,16 +9,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Pool is the minimal database port used at composition time. *pgxpool.Pool
-// satisfies it; repositories (later phases) depend on richer interfaces.
-type Pool interface {
-	Ping(ctx context.Context) error
-	Close()
-}
-
 // NewPostgresPool creates a pgx connection pool from a DSN and verifies
 // connectivity with a ping. A failed ping closes the pool before returning.
-func NewPostgresPool(ctx context.Context, dsn string) (Pool, error) {
+// The concrete *pgxpool.Pool is returned so repositories can use queries and
+// transactions; callers still only need Close() for lifecycle.
+func NewPostgresPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("database: create pool: %w", err)

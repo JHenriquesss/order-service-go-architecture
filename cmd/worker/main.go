@@ -14,6 +14,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"order-service-go/internal/config"
+	"order-service-go/internal/database"
 	"order-service-go/internal/logger"
 	"order-service-go/internal/metrics"
 	"order-service-go/internal/order"
@@ -35,19 +36,24 @@ func run() error {
 	}
 	log := logger.New(cfg.LogLevel, os.Stdout)
 
+	pool, err := database.NewPostgresPool(context.Background(), cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
 	redisClient := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPassword})
 	defer func() { _ = redisClient.Close() }()
 
-	repo := order.NewInMemoryRepository()
-	svc := order.NewService(repo, nil, nil, nil, nil, metrics.NewCollector(), log)
+	svc := order.NewService(order.NewPostgresRepository(pool), nil, nil, nil, nil, metrics.NewCollector(), log)
 	consumer := queue.NewOrderConsumer(redisClient)
-	pool := worker.New(consumer, svc, simulatedProcessor{}, cfg.OrderWorkerCount, log)
+	workerPool := worker.New(consumer, svc, simulatedProcessor{}, cfg.OrderWorkerCount, log)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	log.Info("worker pool starting", "workers", cfg.OrderWorkerCount)
-	pool.Run(ctx)
+	workerPool.Run(ctx)
 	log.Info("worker pool stopped")
 	return nil
 }
