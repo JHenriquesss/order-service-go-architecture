@@ -14,7 +14,7 @@ import (
 func TestNewPostgresPoolConnects(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		t.Skip("DATABASE_URL not set")
+		t.Fatalf("integration tag set but DATABASE_URL is not configured; refusing to skip")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

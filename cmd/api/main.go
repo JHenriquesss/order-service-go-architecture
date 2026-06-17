@@ -7,14 +7,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
 	"order-service-go/internal/auth"
@@ -36,41 +34,6 @@ func main() {
 	}
 }
 
-// seedAdmin creates the default admin user (architecture §34) if it does not
-// already exist. It is idempotent: a present admin or a concurrent insert is a
-// no-op.
-func seedAdmin(ctx context.Context, repo *auth.PostgresUserRepository, log *slog.Logger) error {
-	const adminEmail = "admin@example.com"
-	if _, err := repo.FindByEmail(ctx, adminEmail); err == nil {
-		return nil
-	} else if !errors.Is(err, auth.ErrUserNotFound) {
-		return err
-	}
-	hash, err := auth.HashPassword("123456")
-	if err != nil {
-		return err
-	}
-	now := time.Now()
-	user := &auth.User{
-		ID:           uuid.NewString(),
-		Name:         "Admin",
-		Email:        adminEmail,
-		PasswordHash: hash,
-		Role:         auth.RoleAdmin,
-		Active:       true,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
-	if err := repo.Create(ctx, user); err != nil {
-		if errors.Is(err, auth.ErrEmailTaken) {
-			return nil
-		}
-		return err
-	}
-	log.Info("seeded default admin user", "email", adminEmail)
-	return nil
-}
-
 func run() error {
 	cfg, err := config.Load(os.Getenv)
 	if err != nil {
@@ -90,7 +53,7 @@ func run() error {
 		return err
 	}
 	userRepo := auth.NewPostgresUserRepository(pool)
-	if err := seedAdmin(context.Background(), userRepo, log); err != nil {
+	if err := auth.SeedDefaultAdmin(context.Background(), userRepo, log); err != nil {
 		return err
 	}
 	authService := auth.NewService(userRepo, tokens)

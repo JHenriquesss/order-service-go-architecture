@@ -11,16 +11,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 )
 
 func TestOrderProcessingFailureReachesFailed(t *testing.T) {
-	dsn, redisAddr, apiBase := requireE2EEnv(t)
+	dsn, _, apiBase := requireE2EEnv(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
 	pool := connectPostgres(t, ctx, dsn)
-	redisClient := connectRedis(t, ctx, redisAddr)
 	client := newAPIClient(apiBase)
 	client.login(t, "admin@example.com", "123456")
 
@@ -40,28 +38,33 @@ func TestOrderProcessingFailureReachesFailed(t *testing.T) {
 		"price": 10.00,
 	}, http.StatusCreated, &product)
 
-	var order orderResponse
-	client.doJSON(t, http.MethodPost, "/api/orders", map[string]any{
-		"customer_id": customer.ID,
-		"items": []map[string]any{
-			{"product_id": product.ID, "quantity": 1},
-		},
-	}, http.StatusCreated, &order)
-
-	orderID, err := uuid.Parse(order.ID)
-	if err != nil {
-		t.Fatalf("parse order id: %v", err)
+	var adminID uuid.UUID
+	if err := pool.QueryRow(ctx, `SELECT id FROM users WHERE email=$1`, "admin@example.com").Scan(&adminID); err != nil {
+		t.Fatalf("load admin user: %v", err)
 	}
 
-	// Drain the queue message so the production worker does not race this test.
-	for {
-		_, err := redisClient.BRPop(ctx, 500*time.Millisecond, orderQueueName).Result()
-		if errors.Is(err, redis.Nil) {
-			break
-		}
-		if err != nil {
-			t.Fatalf("drain queue: %v", err)
-		}
+	orderID := uuid.New()
+	customerID, err := uuid.Parse(customer.ID)
+	if err != nil {
+		t.Fatalf("parse customer id: %v", err)
+	}
+	productID, err := uuid.Parse(product.ID)
+	if err != nil {
+		t.Fatalf("parse product id: %v", err)
+	}
+	itemID := uuid.New()
+	now := time.Now().UTC()
+	if _, err := pool.Exec(ctx, `INSERT INTO orders (id, customer_id, status, total_amount, created_by, created_at, updated_at)
+		VALUES ($1, $2, 'CREATED', 10.00, $3, $4, $4)`,
+		orderID, customerID, adminID, now,
+	); err != nil {
+		t.Fatalf("insert order: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO order_items (id, order_id, product_id, quantity, unit_price, total_price, created_at)
+		VALUES ($1, $2, $3, 1, 10.00, 10.00, $4)`,
+		itemID, orderID, productID, now,
+	); err != nil {
+		t.Fatalf("insert order item: %v", err)
 	}
 
 	if err := processOrderWithPaymentFailure(ctx, pool, orderID); err != nil {
@@ -78,7 +81,7 @@ func TestOrderProcessingFailureReachesFailed(t *testing.T) {
 	}
 
 	var apiOrder orderResponse
-	client.doJSON(t, http.MethodGet, "/api/orders/"+order.ID, nil, http.StatusOK, &apiOrder)
+	client.doJSON(t, http.MethodGet, "/api/orders/"+orderID.String(), nil, http.StatusOK, &apiOrder)
 	if apiOrder.Status != "FAILED" {
 		t.Fatalf("expected FAILED via API, got %s", apiOrder.Status)
 	}

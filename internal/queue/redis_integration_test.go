@@ -14,7 +14,7 @@ import (
 func TestNewRedisClientConnects(t *testing.T) {
 	addr := os.Getenv("REDIS_ADDR")
 	if addr == "" {
-		t.Skip("REDIS_ADDR not set")
+		t.Fatalf("integration tag set but REDIS_ADDR is not configured; refusing to skip")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

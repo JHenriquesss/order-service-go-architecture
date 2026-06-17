@@ -37,29 +37,47 @@ See [`docs/architecture.md`](docs/architecture.md) for details.
 
 - Go 1.23+
 - Docker and Docker Compose (for PostgreSQL and Redis)
+- [golang-migrate](https://github.com/golang-migrate/migrate) CLI (`migrate`) for local `make migrate-up` / `make seed`
 
-### Start infrastructure
+### One command (full stack)
 
 From the repository root:
 
 ```bash
+make compose-up
+```
+
+This starts PostgreSQL and Redis (with healthchecks), applies SQL migrations via a one-shot `migrate` service, then builds and runs the API and worker. The API listens on `http://localhost:8080`.
+
+If host port `5432` is already in use, set `POSTGRES_HOST_PORT` (for example `POSTGRES_HOST_PORT=5433 make compose-up`) and point `DATABASE_URL` at that port for host-side tools and integration tests.
+
+Verify:
+
+- `GET http://localhost:8080/health` → 200
+- `GET http://localhost:8080/swagger/index.html` → Swagger UI
+
+Stop the stack:
+
+```bash
+make compose-down
+```
+
+### Local processes (infra in Docker)
+
+Start only Postgres and Redis, apply migrations, seed the default admin, then run API and worker on the host:
+
+```bash
 docker compose up -d postgres redis
+export DATABASE_URL=postgres://orders:orders@localhost:5432/orders?sslmode=disable
+export REDIS_ADDR=localhost:6379
+export JWT_SECRET=change-me
+make migrate-up
+make seed
+make run-api    # terminal 1
+make run-worker # terminal 2
 ```
 
-Apply migrations (see below), then start the API and worker:
-
-```bash
-go run ./cmd/api
-go run ./cmd/worker
-```
-
-Or use Docker Compose for all services:
-
-```bash
-docker compose up --build
-```
-
-The API listens on `http://localhost:8080`.
+Default admin after seed or first API start: `admin@example.com` / `123456`.
 
 ## Environment Variables
 
@@ -77,13 +95,17 @@ The API listens on `http://localhost:8080`.
 
 ## Database Migrations
 
-SQL migrations live in `migrations/`. Apply with your preferred tool or the project Makefile:
+SQL migrations live in `migrations/`. With Docker Compose, migrations run automatically via the `migrate` service before API and worker start.
+
+For a host-only workflow:
 
 ```bash
+export DATABASE_URL=postgres://orders:orders@localhost:5432/orders?sslmode=disable
 make migrate-up
+make seed
 ```
 
-Default admin user is seeded on API startup: `admin@example.com` / `123456`.
+Rollback one step: `make migrate-down` (requires `DATABASE_URL`).
 
 ## Authentication
 
@@ -137,25 +159,35 @@ orders_processing_duration_seconds_avg
 
 ```bash
 go test ./...
+go test -race ./...
 ```
 
 Integration tests are excluded unless the `integration` build tag is set.
 
-### Integration tests
+### Integration tests (live Postgres + Redis + API + worker)
 
-Requires live PostgreSQL, Redis, and a running API + worker (root integration).
+**One-command stack**, then run the suite:
 
 ```bash
+make compose-up
 export DATABASE_URL=postgres://orders:orders@localhost:5432/orders?sslmode=disable
 export REDIS_ADDR=localhost:6379
 export API_BASE_URL=http://localhost:8080
-
-go test -tags=integration ./...
+make test-integration
 ```
+
+Or use the Makefile defaults (same DSN/addresses as above):
+
+```bash
+make compose-up
+make test-integration
+```
+
+The suite covers: Postgres customer round-trip, Redis queue publish/consume, E2E happy path (login → customer → product → order → worker → **PAID** + `orders_created_total`), failure path → **FAILED**, unauthenticated **401**, and unreachable Postgres (bad DSN fails loudly).
 
 When the `integration` tag is set, missing or unreachable services cause tests to **fail** (not skip).
 
-This isolated phase folder ships the integration test bodies and run procedure; the full live run is executed after phases 1–6 are integrated at the repository root.
+Tear down: `make compose-down`.
 
 ## Project Structure
 

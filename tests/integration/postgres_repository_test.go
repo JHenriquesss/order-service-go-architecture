@@ -81,5 +81,21 @@ func migrationsDir() string {
 	if dir := os.Getenv("MIGRATIONS_DIR"); dir != "" {
 		return dir
 	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return filepath.Join("migrations")
+	}
+	dir := wd
+	for {
+		candidate := filepath.Join(dir, "migrations")
+		if info, statErr := os.Stat(candidate); statErr == nil && info.IsDir() {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
 	return filepath.Join("migrations")
 }

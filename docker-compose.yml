@@ -7,22 +7,51 @@ services:
       POSTGRES_USER: orders
       POSTGRES_PASSWORD: orders
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - order_service_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orders -d orders"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7
     container_name: order-service-redis
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    image: migrate/migrate:v4.18.1
+    container_name: order-service-migrate
+    volumes:
+      - ./migrations:/migrations:ro
+    command:
+      [
+        "-path",
+        "/migrations",
+        "-database",
+        "postgres://orders:orders@postgres:5432/orders?sslmode=disable",
+        "up",
+      ]
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   api:
     build: .
     container_name: order-service-api
     depends_on:
-      - postgres
-      - redis
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     environment:
       APP_ENV: development
       HTTP_PORT: 8080
@@ -39,8 +68,10 @@ services:
     build: .
     container_name: order-service-worker
     depends_on:
-      - postgres
-      - redis
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     environment:
       APP_ENV: development
       DATABASE_URL: postgres://orders:orders@postgres:5432/orders?sslmode=disable
